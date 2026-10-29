@@ -18,8 +18,16 @@ interface NavigationPort {
 interface DrivingStatePort { fun state(simulatedParked: Boolean): DrivingState }
 
 class MockNavigationPort : NavigationPort {
+    private var failNext = false
+
+    fun failNextRequest() { failNext = true }
+
     override suspend fun navigateTo(point: Point): NavigationResult {
         delay(500)
+        if (failNext) {
+            failNext = false
+            return NavigationResult.Rejected("시연용으로 안내 요청을 한 번 거부했습니다")
+        }
         return NavigationResult.Confirmed
     }
     override suspend fun close() = Unit

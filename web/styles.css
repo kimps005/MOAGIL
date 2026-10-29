@@ -39,6 +39,7 @@ h1 { margin: 10px 0 9px; font-size: clamp(28px, 3.1vw, 44px); line-height: 1.14;
 .subcopy { color: var(--muted); font-size: 14px; line-height: 1.7; margin: 0; }
 .button-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .btn { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text); border-radius: 13px; padding: 12px 16px; font-size: 13px; font-weight: 750; transition: transform .15s ease, background .15s ease, border-color .15s ease; }
+.btn:disabled { opacity: .48; cursor: not-allowed; }
 .btn:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(125,228,213,.35); background: rgba(125,228,213,.07); }
 .btn.primary { color: #07151d; background: var(--teal); border-color: var(--teal); box-shadow: 0 9px 26px rgba(65,196,177,.15); }
 .btn.primary:hover:not(:disabled) { background: #a2f2e8; }

@@ -4,7 +4,9 @@ const captureMode = new URLSearchParams(location.search).has('capture');
 const state = {
   session: null,
   credentials: null,
-  parked: sessionStorage.getItem('moagil-parked') === 'true',
+  parked: false,
+  navConfirmed: false,
+  navMessage: '',
   pin: { lat: 37.525, lon: 127.000, label: '시연 지점' },
   invite: null,
   joinId: null,
@@ -195,11 +197,51 @@ function render() {
   }
   document.body.classList.remove('passenger-body');
   app.innerHTML = driverMarkup();
+  decorateActiveNavigation();
   const canvas = byId('invite-qr');
   if (canvas && state.credentials) {
     const joinUrl = state.credentials.joinBaseUrl + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken);
     try { drawQr(canvas, joinUrl); } catch (_error) { toast('초대 QR을 표시하지 못했습니다. 주소를 복사해 사용해 주세요.'); }
   }
+}
+
+function decorateActiveNavigation() {
+  const card = app.querySelector('.active-card');
+  if (!card) return;
+  const banner = card.querySelector('.safety-banner');
+  if (banner) {
+    banner.classList.toggle('ready', state.navConfirmed);
+    banner.textContent = state.navMessage || (state.navConfirmed
+      ? '● 모의 안내 확인 · 실제 차량 내비는 연결되지 않았습니다.'
+      : '○ 안내 결과 확인 전에는 하차 완료와 이동 종료를 잠급니다.');
+  }
+  const complete = card.querySelector('[data-action="complete-stop"], [data-action="complete-trip"]');
+  if (complete) complete.disabled = !state.navConfirmed;
+  const actions = card.querySelector('.route-actions');
+  if (actions) {
+    const navigationButton = document.createElement('button');
+    navigationButton.className = 'btn';
+    navigationButton.dataset.action = state.navConfirmed ? 'nav-fail' : 'nav-retry';
+    navigationButton.textContent = state.navConfirmed ? '안내 실패 시연' : '모의 안내 다시 요청';
+    actions.prepend(navigationButton);
+  }
+}
+
+async function requestMockNavigation() {
+  state.navConfirmed = false;
+  state.navMessage = '모의 내비 안내 요청 중…';
+  render();
+  await new Promise(resolve => setTimeout(resolve, 500));
+  if (state.session?.state !== 'ACTIVE') return;
+  const destination = activeDestination();
+  if (!destination.point) {
+    state.navConfirmed = true;
+    state.navMessage = '모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.';
+  } else {
+    state.navConfirmed = true;
+    state.navMessage = '모의 안내 확인 · ' + destination.label + ' · 실제 차량 내비는 연결되지 않았습니다.';
+  }
+  render();
 }
 
 async function newSession(demo) {
@@ -208,7 +250,8 @@ async function newSession(demo) {
     saveCredentials({ sessionId: payload.sessionId, driverToken: payload.driverToken, inviteToken: payload.inviteToken, joinBaseUrl: payload.joinBaseUrl });
     state.session = payload.session || await api('/api/sessions/' + payload.sessionId, {}, payload.driverToken);
     state.parked = false;
-    sessionStorage.setItem('moagil-parked', 'false');
+    state.navConfirmed = false;
+    state.navMessage = '';
     render();
     toast(demo ? '시연용 4명 데이터를 불러왔습니다.' : '새 이동을 만들었습니다. 초대 QR을 공유하세요.');
   } catch (error) { toast(error.message); }
@@ -242,7 +285,6 @@ async function handleAction(button) {
     if (action === 'demo') return await newSession(true);
     if (action === 'park') {
       state.parked = !state.parked;
-      sessionStorage.setItem('moagil-parked', String(state.parked));
       render();
       return toast(state.parked ? '정차(시연) 상태입니다. 실제 차량 감지는 아닙니다.' : '정차 확인을 해제했습니다. 운전자 입력이 잠깁니다.');
     }
@@ -280,16 +322,33 @@ async function handleAction(button) {
     if (action === 'start') {
       if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
       await mutate('/start', { expectedVersion: state.session.version });
+      await requestMockNavigation();
       return toast('모의 내비 안내 화면을 시작했습니다.');
+    }
+    if (action === 'nav-fail') {
+      if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
+      state.navConfirmed = false;
+      state.navMessage = '모의 안내 거부 · 시연용 요청 실패입니다. 다음 목적지로 진행하지 않습니다.';
+      render();
+      return toast('모의 안내 실패를 표시했습니다. 다시 요청해야 계속할 수 있습니다.');
+    }
+    if (action === 'nav-retry') {
+      if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
+      await requestMockNavigation();
+      return toast(state.navConfirmed ? '모의 안내를 다시 확인했습니다.' : '안내를 다시 확인할 수 없습니다.');
     }
     if (action === 'complete-stop') {
       if (!state.parked) return toast('정차 상태(시연)에서만 하차를 확인할 수 있습니다.');
+      if (!state.navConfirmed) return toast('현재 목적지의 안내 결과를 확인해 주세요.');
       const person = currentOrder()[state.session.activeIndex];
       await mutate('/complete-stop', { expectedVersion: state.session.version, passengerId: person.id });
+      await requestMockNavigation();
       return toast('하차 완료를 반영했습니다. 다음 안내는 모의 상태입니다.');
     }
     if (action === 'complete-trip') {
       if (!state.parked) return toast('정차 상태(시연)에서만 이동을 마칠 수 있습니다.');
+      if (!state.navConfirmed) return toast('현재 목적지의 안내 결과를 확인해 주세요.');
+      if (!window.confirm('시연 이동을 종료하고 참가 링크를 비활성화할까요?')) return;
       await mutate('/complete-trip', { expectedVersion: state.session.version });
       state.session = null;
       sessionStorage.removeItem('moagil-driver');
@@ -484,6 +543,7 @@ app.addEventListener('submit', event => {
 
 async function startApp() {
   if (location.pathname.startsWith('/join/')) return initializePassenger();
+  sessionStorage.removeItem('moagil-parked');
   state.credentials = loadCredentials();
   if (state.credentials) {
     try { state.session = await api('/api/sessions/' + state.credentials.sessionId, {}, state.credentials.driverToken); }

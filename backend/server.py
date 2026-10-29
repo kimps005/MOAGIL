@@ -11,7 +11,10 @@ import secrets
 import socket
 import sqlite3
 import sys
+import threading
+import time
 import uuid
+from collections import OrderedDict, deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +28,11 @@ WEB_ROOT = ROOT / "web"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DB_PATH = Path(os.environ.get("MOAGIL_DB", DATA_DIR / "moagil.db"))
 MAX_BODY = 128 * 1024
+JOIN_RATE_LIMIT = 30
+JOIN_RATE_WINDOW_SECONDS = 60
+MAX_JOIN_RATE_BUCKETS = 4096
+_join_rate_lock = threading.Lock()
+_join_rate_buckets: OrderedDict[str, deque[float]] = OrderedDict()
 
 FIXTURE = {
     "startPoint": {"lat": 37.525, "lon": 127.000, "label": "시연 출발지"},
@@ -177,16 +185,37 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 
-    def _send_json(self, status: int, payload: dict):
+    def _send_json(self, status: int, payload: dict, extra_headers: dict[str, str] | None = None):
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self._headers("application/json; charset=utf-8")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
     def _error(self, error: ApiError):
-        self._send_json(error.status, {"error": {"code": error.code, "message": error.message, "requestId": str(uuid.uuid4())}})
+        headers = {"Retry-After": str(JOIN_RATE_WINDOW_SECONDS)} if error.status == 429 else None
+        self._send_json(error.status, {"error": {"code": error.code, "message": error.message, "requestId": str(uuid.uuid4())}}, headers)
+
+    def _limit_join_attempts(self):
+        address = self.client_address[0]
+        now = time.monotonic()
+        with _join_rate_lock:
+            attempts = _join_rate_buckets.setdefault(address, deque())
+            while attempts and now - attempts[0] >= JOIN_RATE_WINDOW_SECONDS:
+                attempts.popleft()
+            if len(attempts) >= JOIN_RATE_LIMIT:
+                raise ApiError(429, "RATE_LIMITED", "요청이 잠시 많습니다. 잠시 뒤 다시 시도해 주세요")
+            attempts.append(now)
+            _join_rate_buckets.move_to_end(address)
+            if len(_join_rate_buckets) > MAX_JOIN_RATE_BUCKETS:
+                for stale_address, bucket in list(_join_rate_buckets.items()):
+                    if not bucket or now - bucket[-1] >= JOIN_RATE_WINDOW_SECONDS:
+                        del _join_rate_buckets[stale_address]
+                while len(_join_rate_buckets) > MAX_JOIN_RATE_BUCKETS:
+                    _join_rate_buckets.popitem(last=False)
 
     def _body(self) -> dict:
         try:
@@ -261,12 +290,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path = self._path()
             body = self._body()
+            parts = path.split("/")
+            if len(parts) == 5 and parts[1:3] == ["api", "sessions"] and parts[4] in ("join-info", "passengers"):
+                self._limit_join_attempts()
             if path == "/api/sessions":
+                base = self._join_base()
                 with _db_connection() as db:
                     session_id, driver_token, invite_token, expires = _new_session(db)
-                base = self._join_base()
                 return self._send_json(201, {"sessionId": session_id, "driverToken": driver_token, "inviteToken": invite_token, "expiresAt": expires, "version": 1, "joinBaseUrl": base})
             if path == "/api/sessions/demo":
+                base = self._join_base()
                 with _db_connection() as db:
                     db.execute("BEGIN IMMEDIATE")
                     session_id, driver_token, invite_token, expires = _new_session(db)
@@ -275,7 +308,6 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("UPDATE sessions SET final_point=?,version=version+1 WHERE id=?", (json.dumps(FIXTURE["finalPoint"], ensure_ascii=False), session_id))
                     row = _session_row(db, session_id)
                     snapshot = _snapshot(db, row)
-                base = self._join_base()
                 return self._send_json(201, {"sessionId": session_id, "driverToken": driver_token, "inviteToken": invite_token, "expiresAt": expires, "version": snapshot["version"], "joinBaseUrl": base, "session": snapshot})
 
             if path.startswith("/api/sessions/"):
@@ -494,14 +526,15 @@ class Handler(BaseHTTPRequestHandler):
         configured = os.environ.get("MOAGIL_PUBLIC_BASE_URL", "").strip()
         if configured:
             parsed = urlsplit(configured)
-            host = (parsed.hostname or "").lower()
+            host = (parsed.hostname or "").lower().rstrip(".")
             if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
                 raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL은 공개 가능한 http(s) 주소의 호스트여야 합니다")
             try:
-                if host == "localhost" or ipaddress.ip_address(host).is_loopback:
-                    raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL에 localhost나 loopback 주소를 사용할 수 없습니다")
+                address = ipaddress.ip_address(host)
+                if address.is_loopback or address.is_unspecified or str(address) == "10.0.2.2":
+                    raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL에 localhost, loopback, unspecified, Android 에뮬레이터 전용 주소를 사용할 수 없습니다")
             except ValueError:
-                if "." not in host:
+                if host == "localhost" or host.endswith(".localhost") or "." not in host:
                     raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL 주소를 확인해 주세요")
             try:
                 port = parsed.port
@@ -510,16 +543,32 @@ class Handler(BaseHTTPRequestHandler):
             if port is not None and not 1 <= port <= 65535:
                 raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL 포트를 확인해 주세요")
             return f"{parsed.scheme}://{parsed.netloc}"
-        host = self.headers.get("Host", "localhost").split(":")[0]
-        if host not in ("localhost", "127.0.0.1", "0.0.0.0", "[::1]"):
-            return "http://" + self.headers.get("Host", "localhost")
+        host_header = self.headers.get("Host", "localhost").strip()
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.connect(("192.0.2.1", 80))
-            address = sock.getsockname()[0]
-            sock.close()
+            parsed_host = urlsplit("//" + host_header)
+            host = (parsed_host.hostname or "").lower().rstrip(".")
+            port = parsed_host.port
+            safe_authority = bool(host) and not (parsed_host.username or parsed_host.password or parsed_host.path or parsed_host.query or parsed_host.fragment)
+        except ValueError:
+            host, port, safe_authority = "", None, False
+        try:
+            address = ipaddress.ip_address(host)
+            needs_lan_fallback = address.is_loopback or address.is_unspecified or str(address) == "10.0.2.2"
+        except ValueError:
+            needs_lan_fallback = not host or host == "localhost" or host.endswith(".localhost") or "." not in host
+        if safe_authority and not needs_lan_fallback:
+            authority = f"[{host}]" if ":" in host else host
+            if port is not None:
+                authority += ":" + str(port)
+            return "http://" + authority
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect(("192.0.2.1", 80))
+                address = sock.getsockname()[0]
         except OSError:
-            address = "127.0.0.1"
+            raise ApiError(500, "PUBLIC_URL_REQUIRED", "휴대폰이 접근할 서버 LAN 주소를 찾지 못했습니다. MOAGIL_PUBLIC_BASE_URL을 설정해 주세요")
+        if ipaddress.ip_address(address).is_loopback or ipaddress.ip_address(address).is_unspecified:
+            raise ApiError(500, "PUBLIC_URL_REQUIRED", "휴대폰이 접근할 서버 LAN 주소를 확인하지 못했습니다. MOAGIL_PUBLIC_BASE_URL을 설정해 주세요")
         port = self.server.server_port
         return "http://" + address + ":" + str(port)
 

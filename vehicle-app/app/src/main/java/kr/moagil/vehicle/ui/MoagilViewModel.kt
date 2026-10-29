@@ -34,6 +34,7 @@ data class DriverUiState(
     val finalLon: String = "126.950000",
     val priorityId: String? = null,
     val navigationMessage: String = "",
+    val navigationConfirmed: Boolean = false,
     val errorMessage: String? = null,
     val notice: String? = null,
     val cancelConfirmation: Boolean = false,
@@ -153,6 +154,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         val credentials = requireCredentials()
         val session = requireSession()
         check(session.state == "ACTIVE" && session.activeIndex < session.selectedOrder.size) { "현재 하차 안내가 없습니다." }
+        check(_state.value.navigationConfirmed) { "현재 목적지 안내를 확인한 뒤 하차를 완료해 주세요." }
         val passengerId = session.selectedOrder[session.activeIndex]
         val updated = MoagilApi(credentials.apiBaseUrl).completeStop(credentials, session, passengerId)
         acceptSession(updated, "하차 확인을 저장했습니다. 다음 목적지를 다시 확인해 주세요.")
@@ -161,8 +163,11 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
 
     fun finishTrip() = driverAction {
         ensureParked()
+        val session = requireSession()
+        check(session.state == "ACTIVE" && session.activeIndex >= session.selectedOrder.size) { "모든 승객 하차를 마친 뒤 이동을 종료해 주세요." }
+        check(_state.value.navigationConfirmed) { "현재 목적지 안내를 확인한 뒤 종료해 주세요." }
         val credentials = requireCredentials()
-        val updated = MoagilApi(credentials.apiBaseUrl).completeTrip(credentials, requireSession())
+        val updated = MoagilApi(credentials.apiBaseUrl).completeTrip(credentials, session)
         acceptSession(updated, "시연 이동을 종료했습니다. 초대 링크가 닫혔습니다.")
         navigation.close()
     }
@@ -189,6 +194,19 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
     }
 
+    fun simulateNavigationFailure() = driverAction {
+        ensureParked()
+        check(requireSession().state == "ACTIVE") { "먼저 모의 안내를 시작해 주세요." }
+        navigation.failNextRequest()
+        requestCurrentNavigation()
+    }
+
+    fun retryNavigation() = driverAction {
+        ensureParked()
+        check(requireSession().state == "ACTIVE") { "현재 모의 안내가 없습니다." }
+        requestCurrentNavigation()
+    }
+
     private suspend fun requestCurrentNavigation() {
         val session = _state.value.session ?: return
         val order = session.selectedOrder
@@ -199,14 +217,14 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             else -> null
         }
         if (point == null) {
-            _state.value = _state.value.copy(navigationMessage = "모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.")
+            _state.value = _state.value.copy(navigationMessage = "모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.", navigationConfirmed = true)
             return
         }
-        _state.value = _state.value.copy(navigationMessage = "모의 내비 안내 요청 중… · ${point.label}")
+        _state.value = _state.value.copy(navigationMessage = "모의 내비 안내 요청 중… · ${point.label}", navigationConfirmed = false)
         _state.value = when (val result = navigation.navigateTo(point)) {
-            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.")
-            is NavigationResult.Rejected -> _state.value.copy(navigationMessage = "모의 안내 거부 · ${result.reason}")
-            NavigationResult.Unavailable -> _state.value.copy(navigationMessage = "모의 안내를 사용할 수 없습니다. 운전자가 목적지를 확인하세요.")
+            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
+            is NavigationResult.Rejected -> _state.value.copy(navigationMessage = "모의 안내 거부 · ${result.reason}", navigationConfirmed = false)
+            NavigationResult.Unavailable -> _state.value.copy(navigationMessage = "모의 안내를 사용할 수 없습니다. 운전자가 목적지를 확인하세요.", navigationConfirmed = false)
         }
     }
 
@@ -220,7 +238,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
             var delayMs = 2_000L
-            while (isActive && _state.value.credentials?.sessionId == credentials.sessionId) {
+            while (isActive && _state.value.credentials?.sessionId == credentials.sessionId && _state.value.session?.state != "COMPLETED" && _state.value.session?.state != "CANCELLED" && _state.value.session?.state != "EXPIRED") {
                 try {
                     val snapshot = MoagilApi(credentials.apiBaseUrl).snapshot(credentials)
                     _state.value = _state.value.copy(connected = true)
@@ -250,6 +268,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             connected = true,
             priorityId = session.priorityPassengerId,
             finalEnabled = session.finalPoint != null,
+            finalLat = session.finalPoint?.lat?.toString() ?: _state.value.finalLat,
+            finalLon = session.finalPoint?.lon?.toString() ?: _state.value.finalLon,
             errorMessage = null,
             notice = notice ?: _state.value.notice,
         )

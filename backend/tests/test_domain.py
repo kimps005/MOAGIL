@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from domain import RouteError, evaluate_route, plan_routes
+from domain import RouteError, evaluate_route, plan_routes, validate_point
 
 
 def passenger(name, point):
@@ -49,6 +49,43 @@ class RoutePlanningTests(unittest.TestCase):
             plan_routes(self.start, [])
         with self.assertRaises(RouteError):
             plan_routes(self.start, self.people + [passenger("E", 0)])
+
+    def test_evaluates_n_factorial_candidates_for_each_supported_group_size(self):
+        for count, expected in ((1, 1), (2, 2), (3, 6), (4, 24)):
+            with self.subTest(count=count):
+                people = self.people[:count]
+                self.assertEqual(expected, len(plan_routes(self.start, people)))
+
+    def test_priority_count_and_tie_break_are_deterministic_without_final_point(self):
+        result = plan_routes(self.start, self.people, priority_id="B", evaluator=lambda _points: {
+            "durationMs": 60_000,
+            "distanceM": None,
+            "tollKrw": None,
+            "dataSource": "test-tie",
+            "fetchedAt": "2026-01-01T00:00:00Z",
+        })
+        self.assertEqual(6, len(result))
+        self.assertEqual(["B", "A", "C", "D"], result[0]["order"])
+        self.assertIsNone(result[0]["distanceM"])
+
+    def test_rejects_duplicate_passenger_ids_unknown_priority_and_bad_provider_values(self):
+        duplicate = [passenger("A", 0), passenger("A", 1)]
+        with self.assertRaises(RouteError):
+            plan_routes(self.start, duplicate)
+        with self.assertRaises(RouteError):
+            plan_routes(self.start, self.people, priority_id="missing")
+        with self.assertRaises(RouteError):
+            plan_routes(self.start, self.people[:1], evaluator=lambda _points: {"durationMs": -1})
+
+    def test_point_validation_rejects_out_of_range_and_non_finite_values(self):
+        for point in (
+            {"lat": 91, "lon": 0},
+            {"lat": 0, "lon": -181},
+            {"lat": "NaN", "lon": 0},
+            {"lat": 0, "lon": "Infinity"},
+        ):
+            with self.subTest(point=point), self.assertRaises(RouteError):
+                validate_point(point)
 
     def test_mock_estimate_discloses_source_and_unknown_toll(self):
         result = evaluate_route([self.start, {"lat": 0, "lon": 0.01, "label": "A"}])

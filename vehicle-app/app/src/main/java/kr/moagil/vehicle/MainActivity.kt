@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
 private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     var pendingDelete by remember { mutableStateOf<Passenger?>(null) }
     var showDisconnect by remember { mutableStateOf(false) }
+    var showFinish by remember { mutableStateOf(false) }
     if (state.cancelConfirmation) {
         AlertDialog(
             onDismissRequest = { model.setCancelConfirmation(false) },
@@ -131,6 +132,15 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
             dismissButton = { TextButton(onClick = { showDisconnect = false }) { Text("취소") } },
         )
     }
+    if (showFinish) {
+        AlertDialog(
+            onDismissRequest = { showFinish = false },
+            title = { Text("이동을 종료할까요?") },
+            text = { Text("모든 하차 단계를 마쳤습니다. 시연 이동을 종료하고 참가 링크를 닫습니다.") },
+            confirmButton = { TextButton(onClick = { showFinish = false; model.finishTrip() }) { Text("이동 종료") } },
+            dismissButton = { TextButton(onClick = { showFinish = false }) { Text("계속 진행") } },
+        )
+    }
 
     Column(Modifier.fillMaxSize().background(Ink)) {
         Header(state, model, onDisconnect = { showDisconnect = true })
@@ -138,7 +148,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
         if (state.session == null) {
             StartPanel(state, model, Modifier.weight(1f))
         } else {
-            SessionDashboard(state, model, onDelete = { pendingDelete = it }, modifier = Modifier.weight(1f))
+            SessionDashboard(state, model, onDelete = { pendingDelete = it }, onFinish = { showFinish = true }, modifier = Modifier.weight(1f))
         }
         state.errorMessage?.let { MessageBanner(it, Alert, onDismiss = model::clearMessages) }
         state.notice?.let { MessageBanner(it, Mint, onDismiss = model::clearMessages) }
@@ -231,7 +241,7 @@ private fun StartActions(state: DriverUiState, model: MoagilViewModel, modifier:
 }
 
 @Composable
-private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDelete: (Passenger) -> Unit, modifier: Modifier = Modifier) {
+private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDelete: (Passenger) -> Unit, onFinish: () -> Unit, modifier: Modifier = Modifier) {
     val session = state.session ?: return
     val credentials = state.credentials
     val terminal = session.state in setOf("COMPLETED", "CANCELLED", "EXPIRED")
@@ -258,7 +268,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
             if (session.route != null && session.state in setOf("PLANNED", "ACTIVE")) {
                 item { OrderCard(session, state, model) }
             }
-            if (session.state == "ACTIVE") { item { ActiveCard(session, state, model) } }
+            if (session.state == "ACTIVE") { item { ActiveCard(session, state, model, onFinish) } }
             if (terminal) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
@@ -431,7 +441,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
 }
 
 @Composable
-private fun ActiveCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
+private fun ActiveCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel, onFinish: () -> Unit) {
     val passenger = session.selectedOrder.getOrNull(session.activeIndex)?.let { id -> session.passengers.firstOrNull { it.id == id } }
     val finalLeg = passenger == null && session.finalPoint != null
     val readyToFinish = passenger == null && session.finalPoint == null
@@ -454,11 +464,17 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
                 (passenger?.point ?: session.finalPoint)?.let { "${it.label} · ${it.lat}, ${it.lon}" } ?: "정차 확인 후 이동을 마무리할 수 있습니다.",
                 color = Muted,
             )
-            when {
-                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("정차 후 하차 완료 · 시연") }
-                finalLeg -> Button(onClick = { model.finishTrip() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("최종 목적지 도착 · 이동 종료") }
-                readyToFinish -> Button(onClick = { model.finishTrip() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
+            if (!state.navigationConfirmed) {
+                Button(onClick = { model.retryNavigation() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("모의 안내 다시 요청") }
+            } else {
+                OutlinedButton(onClick = { model.simulateNavigationFailure() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("안내 실패·재시도 시연") }
             }
+            when {
+                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("정차 후 하차 완료 · 시연") }
+                finalLeg -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("최종 목적지 도착 · 이동 종료") }
+                readyToFinish -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
+            }
+            TextButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소", color = Alert) }
             if (!state.simulatedParked) Text("정차(시연) 확인 전에는 하차 완료와 종료를 잠급니다.", color = Color(0xFFFFD18D), fontSize = 12.sp)
         }
     }

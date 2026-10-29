@@ -48,6 +48,7 @@ $env:MOAGIL_PUBLIC_BASE_URL = 'http://192.168.0.10:8080' # ipconfig에서 확인
 | 서버 | 세션·토큰 해시·4명 제한·SQLite 상태 저장·2초 폴링·version 충돌 처리 |
 | 경로 순서 | 1~4명 모든 순열, 우선 승객 고정, 동률 정렬, Haversine 기반 시연 추정 |
 | 안전 표시 | 정차(시연) 확인 전 운전자 변경·계산·안내·하차 동작 차단 |
+| 모의 안내 복구 | 성공/실패 재현, 결과 미확인 시 하차·종료 차단, 다시 요청과 종료 확인 |
 | P1 실제 연동 | 미구현. 네이버 Directions 5와 Pleos 계정/인증/SDK를 검증하지 않음 |
 | Android APK | `vehicle-app/`에 Compose 및 Gradle mockDebug 소스 제공. 실제 SDK 설치·라이선스 상태와 빌드 결과는 [`docs/validation.md`](docs/validation.md) 참고 |
 
@@ -85,6 +86,7 @@ pnpm record:demo
 - 세션 TTL은 2시간이며 세션 종료 후 참가 링크가 닫힙니다. 서버 재시작 뒤에도 SQLite 세션은 남습니다.
 - `MOAGIL_DB` 환경 변수를 지정하면 데이터베이스 위치를 바꿀 수 있습니다.
 - 초대 및 운전자 토큰은 서버 DB에 SHA-256 해시로만 저장하고 HTTP access log에는 URL을 기록하지 않습니다.
+- 참가 초대 확인/등록 요청은 IP 기준 분당 30회로 제한하며, 초과 시 429와 `Retry-After`를 반환합니다. 단일 프로세스 시연 서버의 메모리 제한이라 배포용 방어 기능은 아닙니다.
 
 ## Android 앱과 APK
 

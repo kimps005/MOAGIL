@@ -59,6 +59,20 @@ async function verifyAccessAndCapacity(context, page) {
   const fifth = await context.request.post(baseUrl + '/api/sessions/' + credentials.sessionId + '/passengers', { data: { inviteToken: credentials.inviteToken, displayName: '다섯 번째', point: { lat: 37.5, lon: 127.0, label: '검증 위치' }, idempotencyKey: crypto.randomBytes(18).toString('hex') } });
   const fifthBody = await fifth.json();
   assert(fifth.status() === 409 && fifthBody.error?.code === 'SESSION_FULL', '다섯 번째 참가자를 원자적으로 거부하지 않았습니다.');
+
+  const emptySession = await context.request.post(baseUrl + '/api/sessions', { data: {} });
+  const emptyCredentials = await emptySession.json();
+  const simultaneous = await Promise.all(Array.from({ length: 5 }, (_, index) => context.request.post(baseUrl + '/api/sessions/' + emptyCredentials.sessionId + '/passengers', {
+    data: {
+      inviteToken: emptyCredentials.inviteToken,
+      displayName: '동시 참가 ' + (index + 1),
+      point: { lat: 37.51 + index / 1000, lon: 127.02, label: '동시 검증 지점' },
+      idempotencyKey: crypto.randomBytes(18).toString('hex'),
+    },
+  })));
+  const concurrentBodies = await Promise.all(simultaneous.map(response => response.json()));
+  assert(simultaneous.filter(response => response.status() === 201).length === 4, '동시 참가에서 정확히 네 명을 받지 않았습니다.');
+  assert(simultaneous.filter((response, index) => response.status() === 409 && concurrentBodies[index].error?.code === 'SESSION_FULL').length === 1, '동시 다섯 번째 참가를 정원 초과로 거부하지 않았습니다.');
 }
 
 async function verifyVersionConflict(context, page) {
@@ -94,8 +108,18 @@ async function main() {
     await page.locator('#qr-card').waitFor({ state: 'visible' });
     await waitScene(page, '새 이동을 만들면 승객 전용 초대 링크가 발급됩니다. 촬영 화면에서는 실제 QR과 토큰을 가렸습니다.', record ? 9000 : quickWait);
 
-    await page.locator('[data-action="preview"]').click();
-    const phone = page.frameLocator('iframe[title="시연용 참가자 모바일 화면"]');
+    let phoneContext;
+    let phone;
+    if (record) {
+      await page.locator('[data-action="preview"]').click();
+      phone = page.frameLocator('iframe[title="시연용 참가자 모바일 화면"]');
+    } else {
+      const credentials = await page.evaluate(() => JSON.parse(sessionStorage.getItem('moagil-driver') || 'null'));
+      phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+      phone = await phoneContext.newPage();
+      const joinUrl = baseUrl + '/join/' + credentials.sessionId + '?invite=' + encodeURIComponent(credentials.inviteToken);
+      await phone.goto(joinUrl, { waitUntil: 'networkidle' });
+    }
     await phone.locator('#display-name').waitFor({ state: 'visible' });
     await phone.locator('#display-name').fill('은지');
     await phone.locator('#place-label').fill('시연 위치 A');
@@ -115,7 +139,8 @@ async function main() {
     if (!record) await verifyAccessAndCapacity(context, page);
     await waitScene(page, '서버에 등록된 위치가 차량 화면에 동기화됐습니다. 이 촬영은 실제 휴대폰 대신 가상 브라우저를 사용합니다.', record ? 9000 : quickWait);
 
-    await page.locator('[data-action="close-preview"]').click();
+    if (phoneContext) await phoneContext.close();
+    if (record) await page.locator('[data-action="close-preview"]').click();
     await page.locator('.passenger-row').filter({ hasText: '은지' }).first().waitFor({ state: 'visible' });
     assert(await page.locator('[data-action="plan"]').isDisabled(), '정차 상태 확인 전 경로 계산이 열려 있습니다.');
     await waitScene(page, '정차 상태가 확인되기 전에는 운전자 입력을 잠급니다.', record ? 7000 : quickWait);
@@ -155,8 +180,27 @@ async function main() {
     const startResponse = waitResponse(page, '/start');
     await page.locator('[data-action="start"]').click();
     assert((await startResponse).ok(), '모의 안내 시작이 실패했습니다.');
-    await page.locator('.safety-banner').filter({ hasText: '모의 내비 안내' }).waitFor({ state: 'visible' });
+    await page.locator('.safety-banner').filter({ hasText: '모의 안내 확인' }).waitFor({ state: 'visible' });
     await waitScene(page, '경로를 확정하면 모의 내비 화면이 열립니다. 실제 차량 내비게이션은 연결되지 않았습니다.', record ? 9000 : quickWait);
+
+    if (!record) {
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.locator('.active-card').waitFor({ state: 'visible' });
+      await page.locator('[data-action="nav-retry"]').waitFor({ state: 'visible' });
+      assert(await page.locator('.park-toggle').innerText().then(text => !text.includes('정차 확인 · 시연')), '앱 재시작 뒤 정차(시연) 상태가 안전하게 해제되지 않았습니다.');
+      assert(await page.locator('[data-action="complete-stop"]').isDisabled(), '앱 재접속 뒤 안내 결과 확인 전 하차 완료가 열려 있습니다.');
+      await page.locator('.park-toggle').click();
+      await page.locator('[data-action="nav-retry"]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action="complete-stop"]')?.disabled);
+    }
+
+    await page.locator('[data-action="nav-fail"]').click();
+    await page.locator('.safety-banner').filter({ hasText: '모의 안내 거부' }).waitFor({ state: 'visible' });
+    assert(await page.locator('[data-action="complete-stop"]').isDisabled(), '안내 실패 뒤 하차 완료가 허용됐습니다.');
+    await waitScene(page, '모의 내비 요청이 실패하면 하차를 진행하지 않습니다.', record ? 6500 : quickWait);
+    await page.locator('[data-action="nav-retry"]').click();
+    await page.locator('.safety-banner').filter({ hasText: '모의 안내 확인' }).waitFor({ state: 'visible' });
+    await waitScene(page, '정차 상태에서 안내를 다시 요청해 확인한 뒤 다음 단계로 이어갑니다.', record ? 7000 : quickWait);
 
     for (let stop = 0; stop < 4; stop++) {
       const response = waitResponse(page, '/complete-stop');
@@ -168,7 +212,12 @@ async function main() {
     await waitScene(page, '승객 하차가 끝나면 운전자 최종 목적지까지 이어갑니다.', record ? 8500 : quickWait);
     const finishedCredentials = await page.evaluate(() => JSON.parse(sessionStorage.getItem('moagil-driver') || 'null'));
     const finishResponse = waitResponse(page, '/complete-trip');
+    const finishDialog = page.waitForEvent('dialog').then(async dialog => {
+      assert(dialog.type() === 'confirm', '이동 종료 확인 대화상자가 표시되지 않았습니다.');
+      await dialog.accept();
+    });
     await page.locator('[data-action="complete-trip"]').click();
+    await finishDialog;
     assert((await finishResponse).ok(), '시연 이동을 완료하지 못했습니다.');
     if (!record && finishedCredentials) {
       const closedInvite = await context.request.post(baseUrl + '/api/sessions/' + finishedCredentials.sessionId + '/join-info', { data: { inviteToken: finishedCredentials.inviteToken } });
@@ -176,7 +225,7 @@ async function main() {
     }
     await waitScene(page, '모아길은 이동 순서와 협의를 돕는 시연 프로토타입입니다. 실제 도로·교통·내비는 별도 검증이 필요합니다.', record ? 11000 : quickWait);
 
-    console.log('E2E PASS: 모바일 등록, 서버 동기화, 24→6 순열, 수동 순서, 정차 차단, 단계별 모의 안내 완료');
+    console.log('E2E PASS: 동시 정원 제한, 모바일 등록/동기화, 앱 재접속 정차 해제, 24→6 순열, 수동 순서, 안내 실패/재시도, 종료 확인');
   } finally {
     video = page.video();
     await context.close();
