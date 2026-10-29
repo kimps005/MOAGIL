@@ -1,0 +1,12 @@
+{
+  "mode": "mock",
+  "startPoint": { "lat": 37.525, "lon": 127.0, "label": "시연 출발지" },
+  "passengers": [
+    { "id": "A", "displayName": "동승자 A", "point": { "lat": 37.545, "lon": 126.97, "label": "시연 지점 A" } },
+    { "id": "B", "displayName": "동승자 B", "point": { "lat": 37.55, "lon": 127.03, "label": "시연 지점 B" } },
+    { "id": "C", "displayName": "동승자 C", "point": { "lat": 37.5, "lon": 127.05, "label": "시연 지점 C" } },
+    { "id": "D", "displayName": "동승자 D", "point": { "lat": 37.48, "lon": 126.98, "label": "시연 지점 D" } }
+  ],
+  "finalPoint": { "lat": 37.51, "lon": 126.95, "label": "운전자 최종 목적지" },
+  "notice": "예시 좌표입니다. 실제 주소, 도로, 교통 정보가 아닙니다."
+}

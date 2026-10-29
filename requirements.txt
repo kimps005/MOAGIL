@@ -1,0 +1,2 @@
+# The backend uses only Python 3.12 standard-library modules.
+# No third-party Python packages are required.

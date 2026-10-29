@@ -1,0 +1,14 @@
+{
+  "name": "moagil-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MOAGIL browser prototype test and demo-video tooling",
+  "scripts": {
+    "test:domain": "python -m unittest discover -s backend/tests -v",
+    "test:e2e": "node demo/run-demo.cjs --verify",
+    "record:demo": "node demo/run-demo.cjs --record"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

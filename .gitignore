@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local runtime data and credentials
+backend/data/
+.env
+.env.*
+!.env.example
+local.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Java / Android build output
+.gradle/
+**/build/
+**/captures/
+
+# JavaScript tooling
+node_modules/
+dist/
+playwright-report/
+test-results/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
