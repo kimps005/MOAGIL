@@ -6,12 +6,14 @@
 스마트폰 브라우저 ── 초대 토큰 / JSON ──┐
   /join/{sessionId}                      │
                                          ▼
-차량용 브라우저 화면 ─ driver token ─ Python stdlib HTTP server ─ SQLite
-  2초 폴링 / mock guide                 ├─ sessions / passengers
-  local SVG map + QR                    └─ mock route permutation engine
+Kotlin/Compose 또는 브라우저 대체 화면 ─ driver token ─ Python stdlib HTTP server ─ SQLite
+  2초 폴링 / mock guide                                     ├─ sessions / passengers
+  local SVG map + QR (브라우저)                             └─ mock route permutation engine
 ```
 
-초기 PRD는 Kotlin/Compose, FastAPI/SQLAlchemy, React/Vite를 선택했지만 이 개발 환경에는 해당 SDK·패키지 설치와 외부 다운로드가 준비되지 않았습니다. 기능 흐름을 로컬에서 바로 실행할 수 있도록 P0 시연 구현은 Python 3.12 표준 라이브러리, SQLite, 정적 HTML/CSS/JavaScript로 구성했습니다. 외부 런타임 의존성은 사용하지 않습니다. 선택된 기술 스택 차이는 구현 제한으로 기록하며 Android 또는 FastAPI 완성으로 표시하지 않습니다.
+초기 PRD의 차량 화면 기술을 반영해 Kotlin/Compose `mockDebug` 앱을 추가했습니다. 서버는 Python 3.12 표준 라이브러리와 SQLite, 참가 웹 및 브라우저 대체 차량 화면은 정적 HTML/CSS/JavaScript로 구성하여 서버 실행에 외부 런타임 패키지가 필요하지 않습니다. PRD의 FastAPI/SQLAlchemy 및 React/Vite 스택은 채택하지 않았으며 구현 범위와 제한을 분리해 기록합니다.
+
+Android 차량 앱은 `vehicle-app/app`에 있으며 OkHttp로 같은 자체 API를 호출하고, Compose의 정차 게이트와 서버 version 검사를 함께 적용합니다. 운전자 token은 Android Keystore AES-GCM 키로 암호화해 앱 개인 저장소에 보관합니다. `NavigationPort`, `DrivingStatePort`는 mock 전용이며 실제 SDK, 차량 위치, 주행 상태를 조회하지 않습니다. Android mockDebug에만 HTTP cleartext를 허용하며 실서비스 설정이 아닙니다. Android SDK 라이선스 동의와 API 34 패키지 설치가 되지 않아 현재 Kotlin 소스는 컴파일되지 않았습니다.
 
 ## 세션 및 권한
 

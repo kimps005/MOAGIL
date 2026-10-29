@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -490,6 +491,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, _snapshot(db, _session_row(db, session_id)))
 
     def _join_base(self):
+        configured = os.environ.get("MOAGIL_PUBLIC_BASE_URL", "").strip()
+        if configured:
+            parsed = urlsplit(configured)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme not in ("http", "https") or not host or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+                raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL은 공개 가능한 http(s) 주소의 호스트여야 합니다")
+            try:
+                if host == "localhost" or ipaddress.ip_address(host).is_loopback:
+                    raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL에 localhost나 loopback 주소를 사용할 수 없습니다")
+            except ValueError:
+                if "." not in host:
+                    raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL 주소를 확인해 주세요")
+            try:
+                port = parsed.port
+            except ValueError as error:
+                raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL 포트를 확인해 주세요") from error
+            if port is not None and not 1 <= port <= 65535:
+                raise ApiError(500, "PUBLIC_URL_INVALID", "MOAGIL_PUBLIC_BASE_URL 포트를 확인해 주세요")
+            return f"{parsed.scheme}://{parsed.netloc}"
         host = self.headers.get("Host", "localhost").split(":")[0]
         if host not in ("localhost", "127.0.0.1", "0.0.0.0", "[::1]"):
             return "http://" + self.headers.get("Host", "localhost")

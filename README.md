@@ -2,7 +2,7 @@
 
 여러 동승자가 각자의 하차 지점을 등록하면, 운전자가 가능한 하차 순서를 확인하고 단계별 안내를 이어가는 시연용 공동 이동 프로토타입입니다.
 
-> 이 저장소는 **브라우저 기반 차량 화면 + 스마트폰 참가 화면 + Python/SQLite 서버**로 P0 사용자 흐름을 재현합니다. Android 네이티브 APK, 실제 지도·도로 탐색, 실시간 교통, 실제 차량 위치, Pleos 내비게이션은 포함되거나 검증되지 않았습니다. 모의 순서 추천은 좌표 사이 직선거리로 추정하며 실차 운행에 사용하지 마세요.
+> 이 저장소는 **Kotlin/Compose 차량 앱 소스 + 브라우저 차량 대체 화면 + 스마트폰 참가 웹 + Python/SQLite 서버**로 P0 흐름을 재현합니다. APK 산출·설치는 아래 검증 기록을 확인하세요. 실제 지도·도로 탐색, 실시간 교통, 차량 센서/위치, Pleos 내비게이션은 포함되지 않습니다. 모의 순서 추천은 좌표 사이 직선거리로 추정하며 실차 운행에 사용하지 마세요.
 
 ## 빠른 실행
 
@@ -20,6 +20,15 @@ python backend/server.py
 
 차량 화면은 `http://localhost:8080`에서 열립니다. 스마트폰 참여를 시연하려면 차량과 스마트폰을 같은 Wi-Fi에 연결한 뒤 차량 화면의 QR을 스캔하세요. 격리된 LAN에서만 HTTP를 사용하고, 방화벽이 차단하면 로컬 운영자가 네트워크 접근을 허용해야 합니다. 초대 링크는 참가 권한을 가지며 이동을 종료하면 사용할 수 없습니다.
 
+Android 에뮬레이터는 PC 서버에 `http://10.0.2.2:8080`으로 접근할 수 있습니다. QR 링크에는 실제 휴대폰이 접근할 수 있는 PC의 사설 IPv4 주소가 필요하므로, 서버 실행 전 PowerShell에서 다음처럼 설정하세요.
+
+```powershell
+$env:MOAGIL_PUBLIC_BASE_URL = 'http://192.168.0.10:8080' # ipconfig에서 확인한 PC 주소로 교체
+.\Start-MOAGIL.ps1
+```
+
+이 설정은 QR의 공개 주소만 바꿉니다. 차량 앱의 API 서버 주소와 분리되어 있어 에뮬레이터 연결과 휴대폰 QR 참여를 함께 시험할 수 있습니다.
+
 ## 시연 순서
 
 1. **시연 데이터로 시작**을 누르면 예시 출발지와 네 명의 테스트 승객이 들어갑니다. 실제 위치 데이터는 아닙니다.
@@ -34,13 +43,13 @@ python backend/server.py
 
 | 영역 | 현재 구현 |
 |---|---|
-| 차량 화면 | 브라우저에서 동승자, 경로 순서, 상태, mock 내비 단계를 표시 |
+| 차량 화면 | Kotlin/Compose `mockDebug` 앱과 브라우저 대체 화면에서 동승자, 경로 순서, 상태, mock 내비 단계를 표시 |
 | 동승자 웹 | QR 참여, 별명, SVG 시연 지도 핀 터치/드래그, 좌표 입력, idempotent 등록 |
 | 서버 | 세션·토큰 해시·4명 제한·SQLite 상태 저장·2초 폴링·version 충돌 처리 |
 | 경로 순서 | 1~4명 모든 순열, 우선 승객 고정, 동률 정렬, Haversine 기반 시연 추정 |
 | 안전 표시 | 정차(시연) 확인 전 운전자 변경·계산·안내·하차 동작 차단 |
 | P1 실제 연동 | 미구현. 네이버 Directions 5와 Pleos 계정/인증/SDK를 검증하지 않음 |
-| Android APK | 미제공. 이 개발 환경에 Android SDK/API 34 및 JDK 17/Gradle 빌드 구성이 없어 빌드하지 못함 |
+| Android APK | `vehicle-app/`에 Compose 및 Gradle mockDebug 소스 제공. 실제 SDK 설치·라이선스 상태와 빌드 결과는 [`docs/validation.md`](docs/validation.md) 참고 |
 
 ### 모의 기능 안내
 
@@ -79,7 +88,7 @@ pnpm record:demo
 
 ## Android 앱과 APK
 
-현재 개발 실행은 차량 화면을 브라우저에서 제공합니다. 네이티브 Android 앱, 실기기 설치, APK 산출물은 아직 없습니다. 필요한 도구 상태와 다음 검증 절차는 [`apk/README.md`](apk/README.md)와 [`docs/validation.md`](docs/validation.md)를 참고하세요.
+Android 차량 앱의 QR·서버 동기화·경로 편집·모의 내비 흐름과 `mockDebug` 빌드 설정은 [`vehicle-app/`](vehicle-app/README.md)에 있습니다. 빌드된 APK 위치와 설치 검증은 [`apk/README.md`](apk/README.md)를 참고하세요. Pleos 연동과 실제 차량 환경은 포함되지 않습니다.
 
 ## 자료
 

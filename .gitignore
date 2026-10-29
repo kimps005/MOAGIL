@@ -19,6 +19,8 @@ local.properties
 .gradle/
 **/build/
 **/captures/
+vehicle-app/.tools/
+vehicle-app/android-sdk/
 
 # JavaScript tooling
 node_modules/
