@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +89,34 @@ class ServerGuardTests(unittest.TestCase):
             self.assertEqual(429, raised.exception.status)
             self.assertEqual("RATE_LIMITED", raised.exception.code)
             handler._limit_join_attempts()
+
+    def test_new_passenger_reopens_a_planned_session_and_invalidates_its_route(self):
+        class ResponseHandler(Handler):
+            def _send_json(self, status, payload, extra_headers=None):
+                return status, payload
+
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[2]) as temporary, patch.object(server, "DATA_DIR", Path(temporary)), patch.object(server, "DB_PATH", Path(temporary) / "sessions.db"):
+            server._init_db()
+            with server._db_connection() as db:
+                session_id, _driver_token, invite_token, _expires = server._new_session(db)
+                db.execute("UPDATE sessions SET state='PLANNED',version=version+1,selected_order='[]',route_snapshot='{}' WHERE id=?", (session_id,))
+
+            handler = object.__new__(ResponseHandler)
+            status, payload = handler._add_passenger(session_id, {
+                "inviteToken": invite_token,
+                "displayName": "다음 참가자",
+                "point": {"lat": 37.51, "lon": 127.02, "label": "등록 위치"},
+                "idempotencyKey": "0123456789abcdef0123456789abcdef",
+            })
+
+            self.assertEqual(201, status)
+            self.assertEqual("다음 참가자", payload["displayName"])
+            with server._db_connection() as db:
+                row = server._session_row(db, session_id)
+                snapshot = server._snapshot(db, row)
+            self.assertEqual("COLLECTING", snapshot["state"])
+            self.assertIsNone(snapshot["routeSnapshot"])
+            self.assertEqual(1, len(snapshot["passengers"]))
 
 
 if __name__ == "__main__":
