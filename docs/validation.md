@@ -15,6 +15,7 @@
 | Naver Directions 어댑터 | PASS · 모의 응답으로 요청 좌표·시간·거리·경로 형상 처리; 실제 Naver 인증은 미검증 |
 | Android 단위 테스트 및 APK | PASS · JDK 17, API 34; Mock/Pleos 단위 테스트 및 양쪽 APK 빌드 |
 | Pleos 앱 QR 크기 | PASS · 초대 QR을 220dp로 키운 APK 설치 후 에뮬레이터 화면에서 확인 |
+| Pleos 지도 조작 | PASS · 에뮬레이터 드래그와 확대·축소 버튼에서 중심·타일 변경 확인. 두 손가락 핀치 줌은 코드에 적용; 직접 멀티터치 입력은 미검증 |
 | Pleos NaviHelper 설치 및 권한 | PASS · `emulator-5554`, NaviHelper 3.0.5, `NAVI_ROUTE_SEARCH` granted |
 | Pleos DNS | PASS · AVD를 `-dns-server 172.20.10.1` 옵션으로 headless 실행해 OSRM과 Pleos 도메인 해석 |
 | Pleos 목적지 콜백 | PASS · QR로 등록한 `오이도역`이 지도·친구 A에 반영되고, `onRouteStarted` 뒤 일치하는 `onDrivingInfo` 수신. 43,000m / 2,520초; 약 1초 |

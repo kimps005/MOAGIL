@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -63,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,6 +109,7 @@ import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.ln
+import kotlin.math.pow
 import kotlin.math.sin
 
 private val Ink = Color(0xFFF3F5FA)
@@ -685,22 +688,58 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
     }
     val routePoints = remember(session.sessionId, session.version) { session.route?.geometry.orEmpty() }
     val allPoints = remember(markers, routePoints) { markers.map(MapMarker::point) + routePoints }
+    var camera by remember(session.sessionId) { mutableStateOf<MapCamera?>(null) }
+    var manuallyMoved by remember(session.sessionId) { mutableStateOf(false) }
     BoxWithConstraints(modifier.background(Color(0xFFEEF1F8)), contentAlignment = Alignment.Center) {
         val widthPx = with(density) { maxWidth.roundToPx().coerceAtLeast(1) }
         val heightPx = with(density) { maxHeight.roundToPx().coerceAtLeast(1) }
-        val zoom = remember(allPoints, widthPx, heightPx) { fittingZoom(allPoints, widthPx, heightPx) }
-        val worldPoints = remember(allPoints, zoom) { allPoints.map { worldPoint(it, zoom) } }
-        val centerX = (worldPoints.minOfOrNull(WorldPoint::x) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::x) ?: 0.0) / 2.0
-        val centerY = (worldPoints.minOfOrNull(WorldPoint::y) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::y) ?: 0.0) / 2.0
+        val fitCamera = remember(allPoints, widthPx, heightPx) {
+            val zoom = fittingZoom(allPoints, widthPx, heightPx)
+            val worldPoints = allPoints.map { worldPoint(it, zoom) }
+            MapCamera(
+                centerX = (worldPoints.minOfOrNull(WorldPoint::x) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::x) ?: 0.0) / 2.0,
+                centerY = (worldPoints.minOfOrNull(WorldPoint::y) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::y) ?: 0.0) / 2.0,
+                zoom = zoom,
+            )
+        }
+        LaunchedEffect(fitCamera) {
+            if (!manuallyMoved) camera = fitCamera
+        }
+        val visibleCamera = camera ?: fitCamera
+        val zoom = visibleCamera.zoom
+        val centerX = visibleCamera.centerX
+        val centerY = visibleCamera.centerY
         val originX = centerX - widthPx / 2.0
         val originY = centerY - heightPx / 2.0
+        val latestCamera = androidx.compose.runtime.rememberUpdatedState(visibleCamera)
         val tileRequests = remember(zoom, widthPx, heightPx, centerX, centerY) {
             mapTileRequests(zoom, originX, originY, widthPx, heightPx)
         }
         val loadedTiles by produceState<List<OsmTile>?>(null, tileRequests, apiBaseUrl, session.sessionId, driverToken) {
             value = OsmTileLoader.load(tileRequests, apiBaseUrl, session.sessionId, driverToken)
         }
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(session.sessionId, widthPx, heightPx) {
+                var accumulatedZoom = 1f
+                detectTransformGestures { centroid, pan, zoomChange, _ ->
+                    accumulatedZoom *= zoomChange
+                    var zoomSteps = 0
+                    while (accumulatedZoom >= 1.35f && latestCamera.value.zoom + zoomSteps < 18) {
+                        accumulatedZoom /= 1.35f
+                        zoomSteps++
+                    }
+                    while (accumulatedZoom <= 0.74f && latestCamera.value.zoom + zoomSteps > 6) {
+                        accumulatedZoom /= 0.74f
+                        zoomSteps--
+                    }
+                    if (latestCamera.value.zoom + zoomSteps !in 6..18) accumulatedZoom = 1f
+                    if (pan != Offset.Zero || zoomSteps != 0) {
+                        manuallyMoved = true
+                        camera = transformMapCamera(latestCamera.value, pan, zoomSteps, centroid, size.width.toFloat(), size.height.toFloat())
+                    }
+                }
+            },
+        ) {
             loadedTiles.orEmpty().forEach { tile ->
                 drawImage(tile.image, dstOffset = IntOffset(tile.left, tile.top), dstSize = IntSize(256, 256))
             }
@@ -740,6 +779,30 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
         when {
             loadedTiles == null -> CircularProgressIndicator(color = Mint)
         }
+        Surface(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+            color = Color.White.copy(alpha = .94f),
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 4.dp,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = {
+                        manuallyMoved = true
+                        camera = transformMapCamera(visibleCamera, Offset.Zero, 1, Offset(widthPx / 2f, heightPx / 2f), widthPx.toFloat(), heightPx.toFloat())
+                    },
+                    modifier = Modifier.size(40.dp),
+                ) { Text("+", fontSize = 21.sp, fontWeight = FontWeight.Bold) }
+                Divider(Modifier.width(24.dp))
+                IconButton(
+                    onClick = {
+                        manuallyMoved = true
+                        camera = transformMapCamera(visibleCamera, Offset.Zero, -1, Offset(widthPx / 2f, heightPx / 2f), widthPx.toFloat(), heightPx.toFloat())
+                    },
+                    modifier = Modifier.size(40.dp),
+                ) { Text("−", fontSize = 21.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
     }
 }
 
@@ -751,8 +814,30 @@ private data class MapMarker(
     val isFinal: Boolean = false,
 )
 private data class WorldPoint(val x: Double, val y: Double)
+private data class MapCamera(val centerX: Double, val centerY: Double, val zoom: Int)
 private data class TileRequest(val zoom: Int, val x: Int, val y: Int, val left: Int, val top: Int)
 private data class OsmTile(val left: Int, val top: Int, val image: androidx.compose.ui.graphics.ImageBitmap)
+
+private fun transformMapCamera(
+    camera: MapCamera,
+    pan: Offset,
+    zoomSteps: Int,
+    focalPoint: Offset,
+    width: Float,
+    height: Float,
+): MapCamera {
+    val pannedX = camera.centerX - pan.x
+    val pannedY = camera.centerY - pan.y
+    val zoom = (camera.zoom + zoomSteps).coerceIn(6, 18)
+    val scale = 2.0.pow((zoom - camera.zoom).toDouble())
+    val focalX = focalPoint.x - width / 2.0
+    val focalY = focalPoint.y - height / 2.0
+    return MapCamera(
+        centerX = (pannedX + focalX) * scale - focalX,
+        centerY = (pannedY + focalY) * scale - focalY,
+        zoom = zoom,
+    )
+}
 
 private fun worldPoint(point: Point, zoom: Int): WorldPoint {
     val scale = 256.0 * (1 shl zoom)
