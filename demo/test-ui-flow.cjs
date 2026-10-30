@@ -23,12 +23,25 @@ async function main() {
     const url = new URL(route.request().url());
     if (url.origin !== baseUrl) return route.fulfill({ status: 204, body: '' });
 
-    if (url.pathname === '/') {
-      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'></head><body><div id='app'></div><script>window.MOAGILMaps={createDriverMap:()=>({destroy(){}})};</script><script src='/app.js'></script></body></html>` });
+    if (url.pathname === '/' || url.pathname.startsWith('/join/')) {
+      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'></head><body><div id='app'></div><script>window.MOAGILMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:()=>({destroy(){},setPoint(){}})};</script><script src='/app.js'></script></body></html>` });
     }
     if (url.pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/styles.css'), 'utf8') });
     if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(path.join(root, 'web/app.js'), 'utf8') });
     if (url.pathname === '/api/config') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mapProvider: 'osm', routingProvider: 'mock' }) });
+
+    if (url.pathname === '/api/sessions/test-session/join-info' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      assert.equal(body.inviteToken, 'invite-test');
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ state: 'COLLECTING', remaining: 4, expiresAt: '2030-01-01T00:00:00Z' }) });
+    }
+
+    if (url.pathname === '/api/sessions/test-session/passengers' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      assert.equal(body.inviteToken, 'invite-test');
+      assert.equal(body.displayName, '수연');
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
+    }
 
     if (url.pathname === '/api/sessions' && route.request().method() === 'POST') {
       session = {
@@ -89,6 +102,18 @@ async function main() {
     assert.equal(await page.locator('.route-workspace .map-card').count(), 1);
     assert.equal(await page.locator('.session-panel').count(), 1);
     console.log('UI PASS: 첫 화면 QR, 등록 후 지도/세션, 1명·2명 자동 재계산');
+
+    await page.goto(baseUrl + '/join/test-session?invite=invite-test', { waitUntil: 'domcontentloaded' });
+    await page.locator('#display-name').waitFor();
+    await page.locator('#pin-map').waitFor();
+    assert.match(await page.locator('.passenger-heading h1').innerText(), /내릴 곳을 직접/);
+    assert.equal(await page.locator('.phone-submit').isVisible(), true);
+    await page.locator('#display-name').fill('수연');
+    await page.locator('#place-label').fill('강남역');
+    await page.locator('.phone-submit').click();
+    await page.locator('.passenger-result').waitFor();
+    assert.match(await page.locator('.passenger-result').innerText(), /수연/);
+    console.log('UI PASS: QR 참가 화면 표시 및 위치 등록 완료');
   } finally {
     await browser.close();
   }
