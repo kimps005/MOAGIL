@@ -486,7 +486,7 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
         contentAlignment = Alignment.Center,
     ) {
         if (image != null) {
-            Image(image.asImageBitmap(), contentDescription = "친구 초대 QR", modifier = Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)).padding(6.dp))
+            Image(image.asImageBitmap(), contentDescription = "친구 초대 QR", modifier = Modifier.size(220.dp).background(Color.White, RoundedCornerShape(10.dp)).padding(8.dp))
         } else {
             Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)))
         }
