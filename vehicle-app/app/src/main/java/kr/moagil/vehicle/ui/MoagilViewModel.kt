@@ -1,6 +1,7 @@
 package kr.moagil.vehicle.ui
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
@@ -224,13 +225,47 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             _state.value = _state.value.copy(navigationMessage = "모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.", navigationConfirmed = true)
             return
         }
-        _state.value = _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos NaviHelper 경로 요청 중… · ${point.label}" else "모의 내비 안내 요청 중… · ${point.label}", navigationConfirmed = false)
-        _state.value = when (val result = navigation.navigateTo(point)) {
-            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 탐색 완료 콜백 확인 · ${point.label}" else "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
-            is NavigationResult.Rejected -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 요청 실패 · ${result.reason}" else "모의 안내 거부 · ${result.reason}", navigationConfirmed = false)
+        val startedAt = SystemClock.elapsedRealtime()
+        _state.value = _state.value.copy(
+            navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                "Pleos NaviHelper 경로 요청 중 · ${point.label} · 0.0초 경과"
+            } else {
+                "모의 내비 안내 요청 중… · ${point.label}"
+            },
+            navigationConfirmed = false,
+        )
+        val elapsedTicker = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) viewModelScope.launch {
+            while (isActive) {
+                delay(200)
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                _state.value = _state.value.copy(
+                    navigationMessage = "Pleos NaviHelper 경로 요청 중 · ${point.label} · ${formatElapsed(elapsed)}초 경과",
+                )
+            }
+        } else null
+        val result = try {
+            navigation.navigateTo(point)
+        } finally {
+            elapsedTicker?.cancel()
+        }
+        _state.value = when (result) {
+            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
+            is NavigationResult.Completed -> _state.value.copy(
+                navigationMessage = "Pleos 내비 경로 탐색 완료 콜백 확인 · ${point.label} · ${formatElapsed(result.elapsedMs)}초",
+                navigationConfirmed = true,
+            )
+            is NavigationResult.Rejected -> {
+                val duration = result.elapsedMs?.let { " · ${formatElapsed(it)}초" }.orEmpty()
+                _state.value.copy(
+                    navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 요청 실패 · ${result.reason}$duration" else "모의 안내 거부 · ${result.reason}",
+                    navigationConfirmed = false,
+                )
+            }
             NavigationResult.Unavailable -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 서비스를 사용할 수 없습니다. 연결 상태와 권한을 확인하세요." else "모의 안내를 사용할 수 없습니다. 운전자가 목적지를 확인하세요.", navigationConfirmed = false)
         }
     }
+
+    private fun formatElapsed(elapsedMs: Long): String = "${elapsedMs / 1_000}.${(elapsedMs % 1_000) / 100}"
 
     private suspend fun refreshNow(credentials: DriverCredentials) {
         runCatching { MoagilApi(credentials.apiBaseUrl).snapshot(credentials) }

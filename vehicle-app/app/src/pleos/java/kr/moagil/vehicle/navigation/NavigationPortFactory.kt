@@ -7,12 +7,13 @@ import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
+import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicReference
 import kr.moagil.vehicle.data.Point
 
@@ -21,7 +22,7 @@ fun createNavigationPort(context: Context): NavigationPort = PleosNavigationPort
 private class PleosNavigationPort(context: Context) : NavigationPort {
     private val appContext = context.applicationContext
     private val routeLock = Mutex()
-    private val pendingResult = AtomicReference<CompletableDeferred<NavigationResult>?>(null)
+    private val pendingResult = AtomicReference<PendingRoute?>(null)
     private var connection: Connection? = null
     private var connectionFailure: String? = null
 
@@ -30,42 +31,57 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         val listener: NaviHelperEventListener,
     )
 
-    override suspend fun navigateTo(point: Point): NavigationResult {
-        val deadlineNanos = System.nanoTime() + ROUTE_TIMEOUT_MS * 1_000_000
-        return withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
-            routeLock.withLock {
-                val connected = connect(deadlineNanos)
-                    ?: return@withLock NavigationResult.Rejected(connectionFailure ?: "Pleos NaviHelper 서비스에 연결할 수 없습니다.")
-                val result = CompletableDeferred<NavigationResult>()
-                pendingResult.set(result)
-                try {
-                    withContext(Dispatchers.Main.immediate) {
-                        connected.helper.requestRoute(
-                            RouteInfo(
-                                latitude = point.lat,
-                                longitude = point.lon,
-                                poiName = point.label,
-                                poiId = "",
-                                address = point.label,
-                                poiSubId = "",
-                                routeOption = RouteOption.RECOMMENDED,
-                            ),
-                        )
-                    }
-                    withTimeoutOrNull(remainingMillis(deadlineNanos)) { result.await() }
-                        ?: NavigationResult.Rejected("5초 안에 Pleos 내비 경로 결과 콜백을 받지 못했습니다.")
-                } catch (error: SecurityException) {
-                    NavigationResult.Rejected("NAVI_ROUTE_SEARCH 권한을 확인해 주세요: ${error.message ?: "권한 오류"}")
-                } catch (error: Exception) {
-                    NavigationResult.Rejected("NaviHelper 요청 오류: ${error.message ?: error.javaClass.simpleName}")
-                } finally {
-                    pendingResult.compareAndSet(result, null)
-                }
-            }
-        } ?: NavigationResult.Rejected("Pleos 내비 응답이 5초 제한을 넘었습니다. 잠시 뒤 다시 시도해 주세요.")
+    private data class PendingRoute(
+        val result: CompletableDeferred<NavigationResult>,
+        val startedAtElapsedMs: Long,
+    ) {
+        fun elapsedMs(): Long = (SystemClock.elapsedRealtime() - startedAtElapsedMs).coerceAtLeast(0)
     }
 
-    private suspend fun connect(deadlineNanos: Long): Connection? {
+    override suspend fun navigateTo(point: Point): NavigationResult {
+        val startedAtElapsedMs = SystemClock.elapsedRealtime()
+        return routeLock.withLock {
+            val pending = PendingRoute(CompletableDeferred(), startedAtElapsedMs)
+            pendingResult.set(pending)
+            try {
+                val connected = connect()
+                    ?: return@withLock NavigationResult.Rejected(
+                        connectionFailure ?: "Pleos NaviHelper 서비스에 연결할 수 없습니다.",
+                        pending.elapsedMs(),
+                    )
+                withContext(Dispatchers.Main.immediate) {
+                    connected.helper.requestRoute(
+                        RouteInfo(
+                            latitude = point.lat,
+                            longitude = point.lon,
+                            poiName = point.label,
+                            poiId = "",
+                            address = point.label,
+                            poiSubId = "",
+                            routeOption = RouteOption.RECOMMENDED,
+                        ),
+                    )
+                }
+                pending.result.await()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: SecurityException) {
+                NavigationResult.Rejected(
+                    "NAVI_ROUTE_SEARCH 권한을 확인해 주세요: ${error.message ?: "권한 오류"}",
+                    pending.elapsedMs(),
+                )
+            } catch (error: Exception) {
+                NavigationResult.Rejected(
+                    "NaviHelper 요청 오류: ${error.message ?: error.javaClass.simpleName}",
+                    pending.elapsedMs(),
+                )
+            } finally {
+                pendingResult.compareAndSet(pending, null)
+            }
+        }
+    }
+
+    private suspend fun connect(): Connection? {
         connection?.let { return it }
 
         val ready = CompletableDeferred<Result<Unit>>()
@@ -74,11 +90,15 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
             override fun onRouteStarted(routeStartInfo: RouteStartInfo) = Unit
 
             override fun onRoutingCompleted() {
-                pendingResult.get()?.complete(NavigationResult.Confirmed)
+                pendingResult.get()?.let { pending ->
+                    pending.result.complete(NavigationResult.Completed(pending.elapsedMs()))
+                }
             }
 
             override fun onError(errorCode: NaviErrorCode) {
-                pendingResult.get()?.complete(NavigationResult.Rejected("내비 오류 $errorCode"))
+                pendingResult.get()?.let { pending ->
+                    pending.result.complete(NavigationResult.Rejected("내비 오류 $errorCode", pending.elapsedMs()))
+                }
             }
         }
         helper.initialize(
@@ -89,21 +109,20 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
             onFailed = { error -> ready.complete(Result.failure(error)) },
         )
 
-        val initialized = withTimeoutOrNull(remainingMillis(deadlineNanos)) { ready.await() }
-        if (initialized?.isSuccess == true) {
+        val initialized = ready.await()
+        if (initialized.isSuccess) {
             connection = Connection(helper, listener)
             connectionFailure = null
             return connection
         }
 
-        connectionFailure = initialized?.exceptionOrNull()?.message
-            ?: "5초 안에 Pleos Navigation 서비스 연결을 확인하지 못했습니다."
+        connectionFailure = initialized.exceptionOrNull()?.message ?: "Pleos Navigation 서비스 연결에 실패했습니다."
         withContext(Dispatchers.Main.immediate) { helper.release() }
         return null
     }
 
     override suspend fun close() = routeLock.withLock {
-        pendingResult.getAndSet(null)?.complete(NavigationResult.Unavailable)
+        pendingResult.getAndSet(null)?.result?.complete(NavigationResult.Unavailable)
         val current = connection ?: return@withLock
         connection = null
         withContext(Dispatchers.Main.immediate) {
@@ -112,10 +131,4 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         }
     }
 
-    private fun remainingMillis(deadlineNanos: Long): Long =
-        ((deadlineNanos - System.nanoTime()) / 1_000_000).coerceAtLeast(1)
-
-    private companion object {
-        const val ROUTE_TIMEOUT_MS = 5_000L
-    }
 }

@@ -6,7 +6,8 @@ import kr.moagil.vehicle.data.Point
 enum class DrivingState { PARKED, UNKNOWN }
 sealed interface NavigationResult {
     data object Confirmed : NavigationResult
-    data class Rejected(val reason: String) : NavigationResult
+    data class Completed(val elapsedMs: Long) : NavigationResult
+    data class Rejected(val reason: String, val elapsedMs: Long? = null) : NavigationResult
     data object Unavailable : NavigationResult
 }
 

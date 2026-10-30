@@ -2,7 +2,7 @@
 
 여러 동승자가 각자의 하차 지점을 등록하면, 운전자가 가능한 하차 순서를 확인하고 단계별 안내를 이어가는 시연용 공동 이동 프로토타입입니다.
 
-> 웹 참가 화면은 실제 지도 타일을 표시하고, 서버는 실제 도로망으로 하차 순서를 계산합니다. 기본 OSRM 샘플 측정에서 4명(24개 순서) 평가와 선택 경로 형상 조회까지 3.34초가 걸렸습니다. 네이버 Maps Client ID를 설정하면 웹과 Android에 네이버 지도를 표시하며, 네이버 Directions 5는 선택형 경로 비교입니다. Android `pleosDebug` 변형은 Pleos NaviHelper로 선택된 하차 지점 하나를 차량 내 내비에 전달합니다. 에뮬레이터에서 SDK 요청은 내비 앱을 열었지만 외부 네트워크가 오프라인이라 경로 완료는 확인하지 못했습니다. 차량 센서·실차 정차 판정·실차 주행 검증은 포함되지 않으므로 실차 운행에 사용하지 마세요.
+> 웹 참가 화면은 실제 지도 타일을 표시하고, 서버는 실제 도로망으로 하차 순서를 계산합니다. OSRM 4명·24개 순서의 전체 API 계산은 이번 측정에서 3.10초였습니다. 네이버 Maps Client ID를 설정하면 웹과 Android에 네이버 지도를 표시하며, 네이버 Directions 5는 선택형 경로 비교입니다. Android `pleosDebug` 변형은 Pleos NaviHelper로 선택된 하차 지점 하나를 차량 내 내비에 전달합니다. Pleos 요청에는 시간 제한을 두지 않고 실제 콜백 시간을 표시합니다. 에뮬레이터에서 실제 경로 성공은 아직 확인하지 못했습니다. 차량 센서·실차 정차 판정·실차 주행 검증은 포함되지 않으므로 실차 운행에 사용하지 마세요.
 
 ## 빠른 실행
 
@@ -62,7 +62,7 @@ $env:MOAGIL_PUBLIC_BASE_URL = 'http://192.168.0.10:8080' # ipconfig에서 확인
 | 안전 표시 | 정차(시연) 확인 전 운전자 변경·계산·안내·하차 동작 차단 |
 | 모의 안내 복구 | 성공/실패 재현, 결과 미확인 시 하차·종료 차단, 다시 요청과 종료 확인 |
 | Naver Maps / Directions 5 | 웹·Android·서버 연동 구현. NCP 인증 정보 없이는 네이버 계정 인증과 실제 응답을 검증할 수 없음 |
-| Pleos NaviHelper | 공식 SDK 빌드·설치·권한 및 내비 앱으로 요청 전달 확인. 외부 네트워크가 없는 에뮬레이터에서 경로 완료 콜백은 미확인; 상세 내용은 [`docs/validation.md`](docs/validation.md) 참고 |
+| Pleos NaviHelper | 공식 SDK 빌드·설치·권한과 내비 경로 오류 콜백 확인. 에뮬레이터에서 `CAUSE_SEARCH_ROUTE` 오류가 15.5초 후 반환됐고 성공 경로는 미확인; 상세 내용은 [`docs/validation.md`](docs/validation.md) 참고 |
 | Android APK | `vehicle-app/`의 Compose `mockDebug`와 `pleosDebug` 앱 및 ABI별 APK. 파일·빌드 안내는 [`apk/README.md`](apk/README.md) 참고 |
 
 ### 모의 기능 안내
