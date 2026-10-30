@@ -24,9 +24,10 @@ async function main() {
     if (url.origin !== baseUrl) return route.fulfill({ status: 204, body: '' });
 
     if (url.pathname === '/' || url.pathname.startsWith('/join/')) {
-      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'></head><body><div id='app'></div><script>window.MOAGILMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
+      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'><link rel='stylesheet' href='/theme.css'></head><body><div id='app'></div><script>window.MOAGILMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
     }
     if (url.pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/styles.css'), 'utf8') });
+    if (url.pathname === '/theme.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/theme.css'), 'utf8') });
     if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(path.join(root, 'web/app.js'), 'utf8') });
     if (url.pathname === '/api/config') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mapProvider: 'osm', routingProvider: 'mock' }) });
 
@@ -114,6 +115,10 @@ async function main() {
     assert.deepEqual(planCalls.map(call => call.passengerCount), [1, 2], '각 위치 등록 뒤 자동으로 해당 인원수 경로를 계산해야 합니다.');
     assert.equal(await page.locator('.route-workspace .map-card').count(), 1);
     assert.equal(await page.locator('.session-panel').count(), 1);
+    assert.equal(await page.locator('.passenger-point').first().innerText(), '강남역');
+    assert.equal(await page.locator('.session-panel .panel-heading .status-pill').count(), 0);
+    assert.equal(await page.locator('.live-shell .brand-copy').evaluate(element => getComputedStyle(element).display), 'flex');
+    if (process.env.MOAGIL_DRIVER_SCREENSHOT) await page.screenshot({ path: process.env.MOAGIL_DRIVER_SCREENSHOT, fullPage: true });
     console.log('UI PASS: 첫 화면 QR, 등록 후 지도/세션, 1명·2명 자동 재계산');
 
     await page.setViewportSize({ width: 390, height: 844 });

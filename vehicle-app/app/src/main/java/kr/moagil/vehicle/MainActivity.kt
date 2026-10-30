@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +62,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -69,6 +71,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -97,6 +101,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -113,12 +118,15 @@ import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.sin
 
-private val Ink = Color(0xFFF3F5FA)
+private val Ink = Color(0xFFF4F5F9)
 private val Panel = Color.White
-private val PanelRaised = Color(0xFFEEF1F8)
-private val Mint = Color(0xFF6579EE)
-private val Muted = Color(0xFF70798D)
-private val Alert = Color(0xFFBC5966)
+private val PanelRaised = Color(0xFFF3F5FA)
+private val Mint = Color(0xFF5D70E6)
+private val AccentSoft = Color(0xFFEEF0FF)
+private val Border = Color(0xFFE5E8F0)
+private val Muted = Color(0xFF737B8D)
+private val Success = Color(0xFF2B806B)
+private val Alert = Color(0xFFB95765)
 private val Scheme = lightColorScheme(
     primary = Mint,
     onPrimary = Color.White,
@@ -133,8 +141,8 @@ private val Scheme = lightColorScheme(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.rgb(243, 245, 250)
-        window.navigationBarColor = android.graphics.Color.rgb(243, 245, 250)
+        window.statusBarColor = android.graphics.Color.rgb(244, 245, 249)
+        window.navigationBarColor = android.graphics.Color.rgb(244, 245, 249)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContent {
             MaterialTheme(colorScheme = Scheme) {
@@ -197,7 +205,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     } else {
         Column(Modifier.fillMaxSize().background(Ink)) {
             Header(state, onNewSession = { showNewSession = true })
-            Divider(color = Color(0xFFE4E8F0))
+            Divider(color = Border)
             SessionDashboard(state, model, onDelete = { pendingDelete = it }, onFinish = { showFinish = true }, modifier = Modifier.weight(1f))
             state.errorMessage?.let { MessageBanner(it, Alert, onDismiss = model::clearMessages) }
         }
@@ -245,19 +253,22 @@ private fun QrFirstScreen(state: DriverUiState, model: MoagilViewModel) {
 @Composable
 private fun Header(state: DriverUiState, onNewSession: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(38.dp).background(Mint, CircleShape), contentAlignment = Alignment.Center) {
-                Text("길", color = Ink, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            Box(Modifier.size(40.dp).background(Brush.linearGradient(listOf(Color(0xFF8192F1), Mint)), CircleShape), contentAlignment = Alignment.Center) {
+                Text("길", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
             }
-            Spacer(Modifier.width(12.dp))
-            Text("모아길", fontWeight = FontWeight.Bold, fontSize = 21.sp)
+            Spacer(Modifier.width(11.dp))
+            Text("모아길", fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = (-0.3).sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Badge(if (state.connected == true) "연결" else if (state.connected == false) "오프라인" else "연결 중", if (state.connected == true) Mint else Alert)
+            Badge(
+                if (state.connected == true) "연결" else if (state.connected == false) "오프라인" else "연결 중",
+                if (state.connected == true) Success else if (state.connected == false) Alert else Muted,
+            )
             if (state.session != null) {
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onNewSession, enabled = !state.busy) { Text("새 QR", color = Muted) }
@@ -385,11 +396,16 @@ private fun LiveStopsPanel(
     val orderedPeople = (routeOrder.mapNotNull(peopleById::get) + session.passengers.filter { it.id !in routeOrder })
     val route = session.route
 
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(
+        modifier,
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("${session.passengers.size}/4", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${session.passengers.size}/4", color = Color(0xFF535E78), fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = .2.sp)
                 }
                 Badge(
                     label = when {
@@ -405,12 +421,20 @@ private fun LiveStopsPanel(
             route?.let {
                 val minutes = (it.durationMs + 30_000) / 60_000
                 val kilometers = it.distanceM?.let { meters -> String.format(Locale.US, "%.1fkm", meters / 1000.0) }.orEmpty()
-                Text("${minutes}분 · $kilometers", color = Muted, fontSize = 12.sp)
+                Row(
+                    Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(14.dp)).padding(horizontal = 13.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("${minutes}분", color = Color(0xFF36457F), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Box(Modifier.size(4.dp).background(Color(0xFF8995D7), CircleShape))
+                    Text(kilometers, color = Color(0xFF616B85), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
             }
 
             LazyColumn(
                 Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 itemsIndexed(orderedPeople, key = { _, person -> person.id }) { index, passenger ->
                     val friendIndex = registrationIndex[passenger.id] ?: 0
@@ -469,32 +493,49 @@ private fun FriendStopRow(
     onMoveDown: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().background(if (priority) Color(0xFFEFF1FF) else PanelRaised, RoundedCornerShape(15.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(if (priority) AccentSoft else Color(0xFFF7F8FC))
+            .border(1.dp, if (priority) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         val emoji = passengerEmoji(passenger.displayName)
-        Box(Modifier.size(44.dp).background(if (priority) Mint else Color(0xFFDDE3FF), CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(44.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
             Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 23.sp else 18.sp)
         }
         Column(Modifier.weight(1f)) {
-            Text(passengerName(passenger.displayName), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(passenger.point.label, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passenger.point.label, color = Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (showReorder) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(32.dp)) {
-                    Text("↑", color = if (canMoveUp) Mint else Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(
+                    onClick = onMoveUp,
+                    enabled = canMoveUp,
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(if (canMoveUp) Color.White else Color.Transparent)
+                        .border(1.dp, if (canMoveUp) Border else Color.Transparent, CircleShape)
+                        .semantics { contentDescription = "위로 이동" },
+                ) {
+                    Text("↑", color = if (canMoveUp) Mint else Muted.copy(alpha = .55f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 }
-                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(32.dp)) {
-                    Text("↓", color = if (canMoveDown) Mint else Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(
+                    onClick = onMoveDown,
+                    enabled = canMoveDown,
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(if (canMoveDown) Color.White else Color.Transparent)
+                        .border(1.dp, if (canMoveDown) Border else Color.Transparent, CircleShape)
+                        .semantics { contentDescription = "아래로 이동" },
+                ) {
+                    Text("↓", color = if (canMoveDown) Mint else Muted.copy(alpha = .55f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
         IconButton(
             onClick = onPin,
             enabled = canPin,
-            modifier = Modifier.size(38.dp).background(if (priority) Color(0xFFDDE3FF) else Color.Transparent, RoundedCornerShape(12.dp)),
+            modifier = Modifier.size(40.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(13.dp))
+                .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
         ) {
             Text("📌", fontSize = 17.sp)
         }
@@ -508,11 +549,16 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
     }
     val image = remember(url) { url.takeIf(String::isNotBlank)?.let(::renderQr) }
     Box(
-        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(16.dp)).padding(8.dp),
+        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(18.dp)).padding(10.dp),
         contentAlignment = Alignment.Center,
     ) {
         if (image != null) {
-            Image(image.asImageBitmap(), contentDescription = "친구 초대 QR", modifier = Modifier.size(220.dp).background(Color.White, RoundedCornerShape(10.dp)).padding(8.dp))
+            Image(
+                image.asImageBitmap(),
+                contentDescription = "친구 초대 QR",
+                modifier = Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(10.dp),
+            )
         } else {
             Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)))
         }
@@ -597,17 +643,22 @@ private fun RouteCalculationCard(state: DriverUiState, model: MoagilViewModel) {
 
 @Composable
 private fun RealRoadMapCard(session: DriverSession, apiBaseUrl: String, driverToken: String, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(
+        modifier,
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) {
-                OsmStreetMapView(session, apiBaseUrl, driverToken, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(14.dp)))
+                OsmStreetMapView(session, apiBaseUrl, driverToken, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)))
             } else {
-                NaverRoadMapView(session, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(14.dp)))
+                NaverRoadMapView(session, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)))
             }
             Text(
                 if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) "© OpenStreetMap" else "© Naver Maps",
                 color = Muted,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
             )
         }
     }
@@ -747,7 +798,16 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
             mapTileRequests(zoom, originX, originY, widthPx, heightPx)
         }
         val loadedTiles by produceState<List<OsmTile>?>(null, tileRequests, apiBaseUrl, session.sessionId, driverToken) {
-            value = OsmTileLoader.load(tileRequests, apiBaseUrl, session.sessionId, driverToken)
+            value = null
+            val firstPass = OsmTileLoader.load(tileRequests, apiBaseUrl, session.sessionId, driverToken)
+            value = firstPass
+            val loadedPositions = firstPass.mapTo(mutableSetOf()) { it.left to it.top }
+            val missingRequests = tileRequests.filter { (it.left to it.top) !in loadedPositions }
+            if (missingRequests.isNotEmpty()) {
+                delay(250)
+                val retriedTiles = OsmTileLoader.load(missingRequests, apiBaseUrl, session.sessionId, driverToken)
+                value = (firstPass + retriedTiles).distinctBy { it.left to it.top }
+            }
         }
         Canvas(
             Modifier.fillMaxSize().pointerInput(session.sessionId, widthPx, heightPx) {
@@ -992,7 +1052,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold)
-                        Text("${passenger.point.label} · ${"%.4f".format(Locale.US, passenger.point.lat)}, ${"%.4f".format(Locale.US, passenger.point.lon)}", color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(passenger.point.label, color = Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (canRemove) TextButton(onClick = { onDelete(passenger) }, enabled = !state.busy) { Text("삭제", color = Alert) }
                 }
