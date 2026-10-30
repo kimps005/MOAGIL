@@ -7,6 +7,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import secrets
 import socket
 import sqlite3
@@ -17,9 +18,10 @@ import uuid
 from collections import OrderedDict, deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
@@ -74,6 +76,12 @@ MAX_GEOCODE_CACHE_ITEMS = 256
 _geocode_lock = threading.Lock()
 _geocode_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _geocode_last_request = 0.0
+MAP_TILE_CACHE_DIR = DATA_DIR / "map-tiles"
+MAP_TILE_DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60
+MAP_TILE_MAX_BYTES = 2 * 1024 * 1024
+MAP_TILE_MAX_ZOOM = 19
+_map_tile_locks_guard = threading.Lock()
+_map_tile_locks: OrderedDict[str, threading.Lock] = OrderedDict()
 
 FIXTURE = {
     "startPoint": {"lat": 37.525, "lon": 127.000, "label": "시연 출발지"},
@@ -141,6 +149,107 @@ def _photon_search(query: str) -> dict:
         while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
             _geocode_cache.popitem(last=False)
         return result
+
+
+def _map_tile_expiry(headers, now: float, previous: dict | None = None) -> tuple[dict, bool]:
+    previous = previous or {}
+    cache_control = headers.get("Cache-Control") or previous.get("cacheControl") or ""
+    max_age = re.search(r"(?:^|,)\s*max-age\s*=\s*\"?(\d+)\"?", cache_control, re.IGNORECASE)
+    expires_at = now + MAP_TILE_DEFAULT_TTL_SECONDS
+    if max_age:
+        expires_at = now + int(max_age.group(1))
+    else:
+        expires_header = headers.get("Expires")
+        if expires_header:
+            try:
+                expires_at = parsedate_to_datetime(expires_header).timestamp()
+            except (TypeError, ValueError, OverflowError):
+                pass
+    if not cache_control:
+        cache_control = f"public, max-age={max(0, int(expires_at - now))}"
+
+    metadata = {
+        "contentType": headers.get("Content-Type") or previous.get("contentType") or "image/png",
+        "cacheControl": cache_control or f"public, max-age={MAP_TILE_DEFAULT_TTL_SECONDS}",
+        "etag": headers.get("ETag") or previous.get("etag"),
+        "lastModified": headers.get("Last-Modified") or previous.get("lastModified"),
+        "expiresAt": expires_at,
+    }
+    return metadata, "no-store" not in cache_control.lower() and expires_at > now
+
+
+def _map_tile_lock(key: str) -> threading.Lock:
+    with _map_tile_locks_guard:
+        lock = _map_tile_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _map_tile_locks[key] = lock
+        _map_tile_locks.move_to_end(key)
+        while len(_map_tile_locks) > 2048:
+            oldest_key, oldest_lock = next(iter(_map_tile_locks.items()))
+            if oldest_lock.locked():
+                break
+            _map_tile_locks.pop(oldest_key)
+        return lock
+
+
+def _load_map_tile(zoom: int, x: int, y: int) -> tuple[bytes, dict]:
+    key = f"{zoom}/{x}/{y}"
+    image_path = MAP_TILE_CACHE_DIR / str(zoom) / str(x) / f"{y}.png"
+    metadata_path = image_path.with_suffix(".json")
+    lock = _map_tile_lock(key)
+
+    with lock:
+        cached = None
+        metadata = {}
+        try:
+            cached = image_path.read_bytes()
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            cached = None
+            metadata = {}
+
+        now = time.time()
+        if cached is not None and float(metadata.get("expiresAt", 0)) > now:
+            return cached, metadata
+
+        headers = {
+            "Accept": "image/png,image/*;q=0.9,*/*;q=0.8",
+            "User-Agent": "MOAGIL-Prototype/1.0 (+https://github.com/kimps005/MOAGIL)",
+        }
+        if cached is not None and metadata.get("etag"):
+            headers["If-None-Match"] = metadata["etag"]
+        if cached is not None and metadata.get("lastModified"):
+            headers["If-Modified-Since"] = metadata["lastModified"]
+        request = Request(f"https://tile.openstreetmap.org/{zoom}/{x}/{y}.png", headers=headers)
+
+        try:
+            with urlopen(request, timeout=10) as response:
+                payload = response.read(MAP_TILE_MAX_BYTES + 1)
+                if len(payload) > MAP_TILE_MAX_BYTES:
+                    raise ApiError(502, "MAP_TILE_TOO_LARGE", "지도 타일을 불러오지 못했습니다.")
+                if not payload or not (response.headers.get("Content-Type", "").lower().startswith("image/")):
+                    raise ApiError(502, "MAP_TILE_INVALID", "지도 타일을 불러오지 못했습니다.")
+                metadata, should_cache = _map_tile_expiry(response.headers, time.time())
+        except HTTPError as error:
+            if error.code != 304 or cached is None:
+                raise ApiError(502, "MAP_TILE_UNAVAILABLE", "지도 타일을 불러오지 못했습니다.") from error
+            metadata, should_cache = _map_tile_expiry(error.headers, time.time(), metadata)
+            payload = cached
+        except (OSError, TimeoutError, URLError) as error:
+            raise ApiError(502, "MAP_TILE_UNAVAILABLE", "지도 타일을 불러오지 못했습니다.") from error
+
+        metadata["contentType"] = metadata.get("contentType", "image/png").split(";", 1)[0]
+        if should_cache:
+            MAP_TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_temp = image_path.with_name(f"{image_path.name}.{uuid.uuid4().hex}.tmp")
+            metadata_temp = metadata_path.with_name(f"{metadata_path.name}.{uuid.uuid4().hex}.tmp")
+            image_temp.write_bytes(payload)
+            metadata_temp.write_text(json.dumps(metadata, separators=(",", ":")), encoding="utf-8")
+            image_temp.replace(image_path)
+            metadata_temp.replace(metadata_path)
+        return payload, metadata
 
 
 def _connect() -> sqlite3.Connection:
@@ -263,11 +372,11 @@ class Handler(BaseHTTPRequestHandler):
         # Request paths can contain invitation tokens. Keep access logs free of them.
         return
 
-    def _headers(self, content_type: str, *, static_page: bool = False):
+    def _headers(self, content_type: str, *, static_page: bool = False, cache_control: str = "no-store"):
         self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin" if static_page else "no-referrer")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control)
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://oapi.map.naver.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 
     def _send_json(self, status: int, payload: dict, extra_headers: dict[str, str] | None = None):
@@ -279,6 +388,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_map_tile(self, payload: bytes, metadata: dict):
+        self.send_response(200)
+        self._headers(
+            metadata.get("contentType", "image/png"),
+            cache_control=metadata.get("cacheControl", f"public, max-age={MAP_TILE_DEFAULT_TTL_SECONDS}"),
+        )
+        if metadata.get("etag"):
+            self.send_header("ETag", metadata["etag"])
+        if metadata.get("lastModified"):
+            self.send_header("Last-Modified", metadata["lastModified"])
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _error(self, error: ApiError):
         headers = {"Retry-After": str(JOIN_RATE_WINDOW_SECONDS)} if error.status == 429 else None
@@ -372,6 +495,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, _photon_search(query))
             if path.startswith("/api/sessions/"):
                 parts = path.split("/")
+                if len(parts) == 8 and parts[4] == "map-tiles" and parts[7].endswith(".png"):
+                    try:
+                        zoom, x, y = int(parts[5]), int(parts[6]), int(parts[7][:-4])
+                    except ValueError as error:
+                        raise ApiError(400, "INVALID_MAP_TILE", "지도 타일 주소가 올바르지 않습니다.") from error
+                    tile_count = 1 << zoom if 0 <= zoom <= MAP_TILE_MAX_ZOOM else 0
+                    if tile_count == 0 or x < 0 or y < 0 or x >= tile_count or y >= tile_count:
+                        raise ApiError(400, "INVALID_MAP_TILE", "지도 타일 주소가 올바르지 않습니다.")
+                    with _db_connection() as db:
+                        self._driver(db, parts[3])
+                    payload, metadata = _load_map_tile(zoom, x, y)
+                    return self._send_map_tile(payload, metadata)
                 if len(parts) != 4:
                     raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
                 with _db_connection() as db:

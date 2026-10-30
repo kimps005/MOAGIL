@@ -302,13 +302,13 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     private fun startPolling(credentials: DriverCredentials) {
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
-            var delayMs = 1_000L
+            var delayMs = 500L
             while (isActive && _state.value.credentials?.sessionId == credentials.sessionId && _state.value.session?.state != "COMPLETED" && _state.value.session?.state != "CANCELLED" && _state.value.session?.state != "EXPIRED") {
                 try {
                     val snapshot = MoagilApi(credentials.apiBaseUrl).snapshot(credentials)
                     _state.value = _state.value.copy(connected = true)
                     acceptSession(snapshot, null)
-                    delayMs = 1_000L
+                    delayMs = 500L
                     delay(delayMs)
                 } catch (error: Exception) {
                     _state.value = _state.value.copy(connected = false)
