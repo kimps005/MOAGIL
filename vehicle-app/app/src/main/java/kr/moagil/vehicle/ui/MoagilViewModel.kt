@@ -68,13 +68,11 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         viewModelScope.launch {
-            vault.restore()?.let { credentials ->
-                _state.value = _state.value.copy(apiBaseUrl = credentials.apiBaseUrl, credentials = credentials)
-                runCatching { MoagilApi(credentials.apiBaseUrl).snapshot(credentials) }
-                    .onSuccess { session -> acceptSession(session, "저장된 이동 정보를 다시 연결했습니다.") }
-                    .onFailure { error -> report(error) }
-                startPolling(credentials)
-            } ?: createSession(false)
+            val previousCredentials = vault.restore()
+            if (previousCredentials != null) {
+                _state.value = _state.value.copy(apiBaseUrl = previousCredentials.apiBaseUrl)
+            }
+            createSession(false, previousCredentials)
         }
     }
 
@@ -89,9 +87,19 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = _state.value.copy(simulatedParked = parked, notice = if (parked) "정차(시연) 상태입니다. 실제 차량 센서는 연결되지 않았습니다." else "정차 확인을 해제했습니다. 운전자 입력을 잠급니다.")
     }
 
-    fun createSession(demo: Boolean) = driverAction {
+    fun createSession(demo: Boolean, previousCredentials: DriverCredentials? = null) = driverAction {
         autoPlanJob?.cancel()
         autoPlanAttemptKey = null
+        val previous = previousCredentials ?: _state.value.credentials
+        if (previous != null) {
+            runCatching {
+                val api = MoagilApi(previous.apiBaseUrl)
+                val oldSession = api.snapshot(previous)
+                if (oldSession.state !in setOf("COMPLETED", "CANCELLED", "EXPIRED")) {
+                    api.cancel(previous, oldSession)
+                }
+            }
+        }
         val baseUrl = _state.value.apiBaseUrl.trim().trimEnd('/')
         require(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) { "서버 주소는 http:// 또는 https://로 시작해야 합니다." }
         val (credentials, demoSession) = MoagilApi(baseUrl).createSession(demo)

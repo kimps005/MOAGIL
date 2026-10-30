@@ -178,7 +178,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
         AlertDialog(
             onDismissRequest = { showNewSession = false },
             title = { Text("새 이동을 만들까요?") },
-            text = { Text("이 기기의 QR을 새 이동으로 바꿉니다. 이전 이동은 서버에 남지만 이 기기에서는 다시 열 수 없습니다.") },
+            text = { Text("이전 초대 QR을 닫고 새 이동 QR을 발급합니다.") },
             confirmButton = {
                 TextButton(onClick = { showNewSession = false; model.createSession(false) }) { Text("새 이동 만들기") }
             },
