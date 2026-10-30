@@ -3,9 +3,12 @@ package kr.moagil.vehicle
 import android.graphics.Color as AndroidColor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
@@ -158,6 +161,23 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
+    val context = LocalContext.current
+    val vehiclePermissions = remember {
+        listOf(
+            "pleos.car.permission.FUSED_LOCATION",
+            "android.car.permission.CAR_SPEED",
+            "android.car.permission.CAR_POWERTRAIN",
+        )
+    }
+    LaunchedEffect(model) {
+        if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+            model.startVehicleContext()
+        } else if (vehiclePermissions.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
+            model.startVehicleContext()
+        } else {
+            model.setVehiclePermissionDenied()
+        }
+    }
     var pendingDelete by remember { mutableStateOf<Passenger?>(null) }
     var showFinish by remember { mutableStateOf(false) }
     var showNewSession by remember { mutableStateOf(false) }
@@ -283,7 +303,12 @@ private fun StartPanel(state: DriverUiState, model: MoagilViewModel, modifier: M
         val wide = maxWidth > 900.dp
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("여러 목적지, 순서는 한 번에.", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-            Text("동승자는 휴대폰 웹에서 하차 지점을 등록하고, 운전자는 정차 상태에서 순서와 모의 안내를 확인합니다.", color = Muted, fontSize = 16.sp)
+            Text(
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "동승자는 휴대폰에서 목적지를 등록하고, 차량은 현재 위치와 상태를 기준으로 내비를 연결합니다."
+                else "동승자는 휴대폰 웹에서 하차 지점을 등록하고, 운전자는 시연용 정차 상태에서 순서와 안내를 확인합니다.",
+                color = Muted,
+                fontSize = 16.sp,
+            )
             if (wide) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ServerCard(state, model, Modifier.weight(1f))
@@ -293,7 +318,10 @@ private fun StartPanel(state: DriverUiState, model: MoagilViewModel, modifier: M
                 ServerCard(state, model, Modifier.fillMaxWidth())
                 StartActions(state, model, Modifier.fillMaxWidth())
             }
-            SafetyNote("정차 전 운전자 변경은 잠깁니다. 이 앱은 차량 센서와 실제 내비를 사용하지 않습니다.")
+            SafetyNote(
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "차량 위치·속도·기어 정보가 확인되고 P에 정차했을 때만 운전자 조작을 허용합니다."
+                else "시연용 정차 스위치로 운전자 조작을 제한합니다. 실제 차량 상태는 연결되지 않습니다."
+            )
         }
     }
 }
@@ -438,12 +466,12 @@ private fun LiveStopsPanel(
             ) {
                 itemsIndexed(orderedPeople, key = { _, person -> person.id }) { index, passenger ->
                     val friendIndex = registrationIndex[passenger.id] ?: 0
-                    val canReorder = state.simulatedParked && !state.busy && session.state == "PLANNED"
+                    val canReorder = state.canOperate && !state.busy && session.state == "PLANNED"
                     FriendStopRow(
                         passenger = passenger,
                         friendLabel = friendLabel(friendIndex),
                         priority = session.priorityPassengerId == passenger.id,
-                        canPin = state.simulatedParked && !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
+                        canPin = state.canOperate && !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
                         canMoveUp = canReorder && index > 0 && (session.priorityPassengerId == null || index > 1),
                         canMoveDown = canReorder && index < orderedPeople.lastIndex && passenger.id != session.priorityPassengerId,
                         showReorder = session.state == "PLANNED",
@@ -463,7 +491,7 @@ private fun LiveStopsPanel(
             if (session.state == "PLANNED" && route != null) {
                 Button(
                     onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
-                    enabled = state.simulatedParked && !state.busy,
+                    enabled = state.canOperate && !state.busy,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
                     Text("안내 시작", fontWeight = FontWeight.Bold)
@@ -473,7 +501,11 @@ private fun LiveStopsPanel(
                 Column(Modifier.weight(1f)) {
                     Text("정차", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() }, enabled = !state.busy)
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                    Text(if (state.canOperate) state.vehicleContext.message else "차량 상태 확인 필요", color = if (state.canOperate) Success else Muted, fontSize = 12.sp)
+                } else {
+                    Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() }, enabled = !state.busy)
+                }
             }
         }
     }
@@ -625,7 +657,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sessionDetailItems(
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("세션 ${session.sessionId.take(8)} · 버전 ${session.version} · 만료 ${formatTime(session.expiresAt)}", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (!terminal && session.state != "ACTIVE") OutlinedButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소") }
+            if (!terminal && session.state != "ACTIVE") OutlinedButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.canOperate && !state.busy) { Text("이동 취소") }
         }
     }
 }
@@ -1001,15 +1033,39 @@ private object OsmTileLoader {
 
 @Composable
 private fun SafetyCard(state: DriverUiState, model: MoagilViewModel) {
-    Card(colors = CardDefaults.cardColors(containerColor = if (state.simulatedParked) Color(0xFFEAF6F1) else PanelRaised), shape = RoundedCornerShape(18.dp)) {
+    val context = LocalContext.current
+    val vehiclePermissions = listOf(
+        "pleos.car.permission.FUSED_LOCATION",
+        "android.car.permission.CAR_SPEED",
+        "android.car.permission.CAR_POWERTRAIN",
+    )
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val granted = vehiclePermissions.all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+        if (granted) model.startVehicleContext() else model.setVehiclePermissionDenied()
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = if (state.canOperate) Color(0xFFEAF6F1) else PanelRaised), shape = RoundedCornerShape(18.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (state.simulatedParked) "정차(시연) 상태" else "정차 상태 확인 필요", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (state.simulatedParked) Mint else Color(0xFF98631D))
-                Text("모의 토글 · 차량 센서 판정이 아닙니다", color = Muted, fontSize = 12.sp)
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                    Text(if (state.canOperate) "P 정차 확인" else "차량 상태 확인 필요", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (state.canOperate) Mint else Color(0xFF98631D))
+                    Text(state.vehicleContext.message, color = Muted, fontSize = 12.sp)
+                    Text(state.vehicleContext.location?.label ?: "출발 위치 확인 중", color = Muted, fontSize = 12.sp)
+                } else {
+                    Text(if (state.simulatedParked) "정차(시연) 상태" else "정차 상태 확인 필요", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (state.simulatedParked) Mint else Color(0xFF98631D))
+                    Text("모의 토글 · 실제 차량 정보 미연결", color = Muted, fontSize = 12.sp)
+                }
             }
-            Text("운전자 입력", color = Muted, fontSize = 13.sp)
-            Spacer(Modifier.width(8.dp))
-            Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() })
+            if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                if (!state.vehiclePermissionGranted) {
+                    OutlinedButton(onClick = { permissionLauncher.launch(vehiclePermissions.toTypedArray()) }) { Text("차량 연결") }
+                } else {
+                    Text(if (state.canOperate) "조작 가능" else "조작 잠김", color = Muted, fontSize = 13.sp)
+                }
+            } else {
+                Text("정차", color = Muted, fontSize = 13.sp)
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() })
+            }
         }
     }
 }
@@ -1039,7 +1095,7 @@ private fun InviteCard(session: DriverSession, joinBaseUrl: String, inviteToken:
 
 @Composable
 private fun PassengerCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel, onDelete: (Passenger) -> Unit, modifier: Modifier = Modifier) {
-    val canRemove = state.simulatedParked && session.state in setOf("COLLECTING", "PLANNED")
+    val canRemove = state.canOperate && session.state in setOf("COLLECTING", "PLANNED")
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle("동승자", "등록된 위치만 차량 화면에 표시")
@@ -1063,7 +1119,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
 
 @Composable
 private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
-    val enabled = state.simulatedParked && !state.busy && session.state in setOf("COLLECTING", "PLANNED")
+    val enabled = state.canOperate && !state.busy && session.state in setOf("COLLECTING", "PLANNED")
     var expanded by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1091,7 +1147,7 @@ private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, mode
                     Text("좌표로 지정하는 시연용 목적지입니다.", color = Muted, fontSize = 12.sp)
                 }
                 PriorityPicker(session, state, model, enabled)
-                if (!state.simulatedParked) Text("선택 사항 변경은 정차 확인 후 할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
+                if (!state.canOperate) Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "차량이 P 기어로 정차해야 설정할 수 있습니다." else "선택 사항 변경은 정차 확인 후 할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
             }
         }
     }
@@ -1120,7 +1176,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
     val route = session.route ?: return
     var confirmPleosRoute by remember { mutableStateOf(false) }
     val active = session.state == "ACTIVE"
-    val canEdit = state.simulatedParked && !state.busy && !active
+    val canEdit = state.canOperate && !state.busy && !active
     val names = session.passengers.associateBy(Passenger::id)
     if (confirmPleosRoute) {
         AlertDialog(
@@ -1158,7 +1214,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                 ) {
                     Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서 확정 · Pleos 내비 전송" else "경로 확정 · 모의 안내", fontWeight = FontWeight.Bold)
                 }
-                if (!state.simulatedParked) Text("정차 확인 후 내비로 전송할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
+                if (!state.canOperate) Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "차량이 P 기어로 정차해야 내비로 전송할 수 있습니다." else "정차 확인 후 내비로 전송할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
             }
         }
     }
@@ -1189,17 +1245,17 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
                 color = Muted,
             )
             if (!state.navigationConfirmed) {
-                Button(onClick = { model.retryNavigation() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 다시 요청" else "모의 안내 다시 요청") }
+                Button(onClick = { model.retryNavigation() }, enabled = state.canOperate && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 다시 요청" else "모의 안내 다시 요청") }
             } else if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                OutlinedButton(onClick = { model.simulateNavigationFailure() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("안내 실패·재시도 시연") }
+                OutlinedButton(onClick = { model.simulateNavigationFailure() }, enabled = state.canOperate && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("안내 실패·재시도 시연") }
             }
             when {
-                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "정차 확인 · 다음 내비 목적지 전송" else "정차 후 하차 완료 · 시연") }
-                finalLeg -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("최종 목적지 도착 · 이동 종료") }
-                readyToFinish -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
+                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.canOperate && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "정차 확인 · 다음 내비 목적지 전송" else "정차 후 하차 완료 · 시연") }
+                finalLeg -> Button(onClick = onFinish, enabled = state.canOperate && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("최종 목적지 도착 · 이동 종료") }
+                readyToFinish -> Button(onClick = onFinish, enabled = state.canOperate && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
             }
-            TextButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소", color = Alert) }
-            if (!state.simulatedParked) Text("정차(시연) 확인 전에는 하차 완료와 종료를 잠급니다.", color = Color(0xFF98631D), fontSize = 12.sp)
+            TextButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.canOperate && !state.busy) { Text("이동 취소", color = Alert) }
+            if (!state.canOperate) Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "P 기어와 정차가 확인되면 조작할 수 있습니다." else "정차(시연) 확인 전에는 하차 완료와 종료를 잠급니다.", color = Color(0xFF98631D), fontSize = 12.sp)
         }
     }
 }

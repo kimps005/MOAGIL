@@ -2,6 +2,12 @@
 
 마지막 갱신: 2026-10-31 (Asia/Seoul)
 
+## 차량 상태 연동 변경 (검증 대기)
+
+- Pleos 변형에 FusedLocation 차량 위치와 AAOS `CarPropertyManager` 차량 속도·기어 조회를 연결하는 코드를 추가했습니다. 위치를 서버 세션 출발지로 반영하고, 속도 0.3m/s 미만 및 P 기어일 때만 운전자 조작을 허용합니다. Mock 변형의 시연용 정차 스위치는 유지합니다.
+- 이 변경 후 Pleos APK는 아직 빌드·설치하지 않았습니다. 빌드는 Gradle distribution을 받으려 했으나 `services.gradle.org` DNS 연결을 사용할 수 없었고, 오프라인 Gradle 실행은 Windows native-platform 라이브러리 초기화에서 중단됐습니다. 에뮬레이터의 실제 위치·속도·기어 신호도 확인 전입니다.
+- Pleos 권한 `FUSED_LOCATION`, `CAR_SPEED`, `CAR_POWERTRAIN`을 manifest에 추가했습니다. Playground에서 해당 권한 사용이 허용되지 않으면 위치·상태가 제공되지 않으며 Pleos 앱은 운전자 조작을 잠급니다.
+
 ## 완료한 검사
 
 | 구분 | 결과 |
@@ -32,7 +38,8 @@
 | 네이버 Web/Mobile Dynamic Map 실제 인증 | 미검증 | Naver Cloud Client ID를 `.env`와 `vehicle-app/local.properties`에 설정하고 브라우저·Android 지도 확인 |
 | 네이버 Directions 5 실제 응답 | 미검증 | Client ID/Secret 설정 후 실제 요청 확인. Secret은 채팅이나 GitHub에 올리지 않음 |
 | 스마트폰 QR의 외부 네트워크 접속 | 부분 검증 | 임시 HTTPS QR 페이지가 200으로 열리고 등록 요청이 성공. 실제 휴대폰에서 카메라로 여는 과정은 미검증 |
-| 실제 차량 센서 및 주행 | 미검증 | 테스트 범위 밖. 현재 정차 토글은 시연 입력이고 앱은 실차용이 아님 |
+| Pleos 차량 위치·속도·기어 수신 | 미검증 | 이번 코드 변경의 Pleos APK 빌드와 AVD 신호 수신을 확인해야 함. 위치·속도 권한이 Playground에서 허용되어야 함 |
+| 실제 차량 주행 | 미검증 | 실차 주행 시험은 하지 않음 |
 | Pleos POI 상세 오류 제거 | 미완료 | 비어 있지 않은 Pleos POI ID가 필요. 현재 사용하는 NaviHelper 문서에는 검색 API가 없어 앱에서 ID를 자동 조회하는 흐름이 없음 |
 
 ## Pleos 실행 기록

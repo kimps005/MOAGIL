@@ -86,6 +86,9 @@ dependencies {
     implementation(libs.zxing.core)
     implementation("com.naver.maps:map-sdk:3.24.0")
     add("pleosImplementation", "ai.pleos.playground:NaviHelper:3.0.5")
+    add("pleosImplementation", "ai.pleos.playground:FusedLocation:1.1.3")
+    val androidCarApi = android.sdkDirectory.resolve("platforms/android-34/optional/android.car.jar")
+    if (androidCarApi.isFile) add("pleosCompileOnly", files(androidCarApi))
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

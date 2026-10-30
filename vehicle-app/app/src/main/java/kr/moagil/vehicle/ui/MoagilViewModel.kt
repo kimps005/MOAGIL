@@ -21,9 +21,9 @@ import kr.moagil.vehicle.data.DriverVault
 import kr.moagil.vehicle.data.MoagilApi
 import kr.moagil.vehicle.data.Passenger
 import kr.moagil.vehicle.data.Point
-import kr.moagil.vehicle.navigation.DrivingState
 import kr.moagil.vehicle.navigation.createNavigationPort
-import kr.moagil.vehicle.navigation.MockDrivingStatePort
+import kr.moagil.vehicle.navigation.VehicleContext
+import kr.moagil.vehicle.navigation.createVehicleContextPort
 import kr.moagil.vehicle.navigation.NavigationResult
 import kr.moagil.vehicle.BuildConfig
 
@@ -33,6 +33,9 @@ data class DriverUiState(
     val session: DriverSession? = null,
     val connected: Boolean? = null,
     val simulatedParked: Boolean = false,
+    val vehicleContext: VehicleContext = VehicleContext(),
+    val vehiclePermissionGranted: Boolean = false,
+    val canOperate: Boolean = false,
     val busy: Boolean = false,
     val autoPlanning: Boolean = false,
     val autoPlanError: String? = null,
@@ -50,15 +53,18 @@ data class DriverUiState(
 class MoagilViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = DriverVault(application)
     private val navigation = createNavigationPort(application)
-    private val driving = MockDrivingStatePort()
+    private val vehicleContextPort = createVehicleContextPort(application)
     private val _state = MutableStateFlow(DriverUiState())
     val state: StateFlow<DriverUiState> = _state.asStateFlow()
     private var pollJob: Job? = null
     private var healthJob: Job? = null
     private var autoPlanJob: Job? = null
+    private var originSyncJob: Job? = null
     private var autoPlanAttemptKey: String? = null
+    private var vehicleContextStarted = false
 
     init {
+        if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) startVehicleContext()
         healthJob = viewModelScope.launch {
             while (isActive) {
                 val current = _state.value
@@ -82,9 +88,36 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun clearMessages() { _state.value = _state.value.copy(errorMessage = null, notice = null) }
     fun setCancelConfirmation(show: Boolean) { _state.value = _state.value.copy(cancelConfirmation = show) }
 
+    fun startVehicleContext() {
+        if (vehicleContextStarted) return
+        vehicleContextStarted = true
+        _state.value = _state.value.copy(vehiclePermissionGranted = true)
+        vehicleContextPort.start { context ->
+            _state.value = _state.value.copy(
+                vehicleContext = context,
+                canOperate = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) context.isParked else _state.value.simulatedParked,
+            )
+            context.location?.let(::syncOriginWhenUseful)
+        }
+    }
+
+    fun setVehiclePermissionDenied() {
+        _state.value = _state.value.copy(
+            vehiclePermissionGranted = false,
+            canOperate = false,
+            vehicleContext = _state.value.vehicleContext.copy(
+                signalsReady = false,
+                speedMetersPerSecond = null,
+                gearSelection = null,
+                message = "차량 위치·속도 권한을 허용해 주세요",
+            ),
+        )
+    }
+
     fun toggleParked() {
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION) return
         val parked = !_state.value.simulatedParked
-        _state.value = _state.value.copy(simulatedParked = parked, notice = if (parked) "정차(시연) 상태입니다. 실제 차량 센서는 연결되지 않았습니다." else "정차 확인을 해제했습니다. 운전자 입력을 잠급니다.")
+        _state.value = _state.value.copy(simulatedParked = parked, canOperate = parked, notice = if (parked) "시연용 정차 상태입니다." else "정차 확인을 해제했습니다. 운전자 입력을 잠급니다.")
     }
 
     fun createSession(demo: Boolean, previousCredentials: DriverCredentials? = null) = driverAction {
@@ -110,13 +143,23 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             session = demoSession,
             connected = true,
             simulatedParked = false,
+            canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked,
             priorityId = demoSession?.priorityPassengerId,
             finalEnabled = demoSession?.finalPoint != null,
             errorMessage = null,
             notice = if (demo) "시연용 위치 4개를 불러왔습니다. 순서를 계산하면 서버가 실제 도로 경로를 비교합니다." else "새 이동을 만들었습니다. 초대 QR에서 참가를 기다립니다.",
             navigationMessage = "",
         )
-        if (demoSession == null) refreshNow(credentials)
+        var session = demoSession
+        if (session == null) {
+            refreshNow(credentials)
+            session = _state.value.session
+        }
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION && session != null &&
+            _state.value.vehicleContext.signalsReady && _state.value.vehicleContext.hasFreshLocation
+        ) {
+            syncCurrentVehicleOrigin(session)
+        }
         startPolling(credentials)
     }
 
@@ -139,7 +182,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
 
     fun plan() = driverAction {
         ensureParked()
-        val session = requireSession()
+        val session = syncCurrentVehicleOrigin(requireSession())
         check(session.passengers.isNotEmpty()) { "동승자가 한 명 이상 등록돼야 경로를 계산할 수 있습니다." }
         val updated = MoagilApi(requireCredentials().apiBaseUrl).plan(requireCredentials(), session)
         val routeNote = updated.route?.note ?: "경로 결과를 확인하지 못했습니다."
@@ -171,7 +214,12 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun startRoute() = driverAction {
         ensureParked()
         val credentials = requireCredentials()
-        val updated = MoagilApi(credentials.apiBaseUrl).start(credentials, requireSession())
+        var session = syncCurrentVehicleOrigin(requireSession())
+        if (session.route == null) {
+            session = MoagilApi(credentials.apiBaseUrl).plan(credentials, session)
+            acceptSession(session, "현재 차량 위치 기준으로 순서를 다시 계산했습니다.")
+        }
+        val updated = MoagilApi(credentials.apiBaseUrl).start(credentials, session)
         acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 첫 하차 목적지를 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
         requestCurrentNavigation()
     }
@@ -218,7 +266,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         pollJob?.cancel()
         vault.clear()
         viewModelScope.launch { navigation.close() }
-        _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
+        _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
     }
 
     fun simulateNavigationFailure() = driverAction {
@@ -346,7 +394,13 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun scheduleAutoPlan(session: DriverSession, force: Boolean = false) {
+        if (_state.value.busy) return
         val credentials = _state.value.credentials ?: return
+        if (originSyncJob?.isActive == true) return
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION && (!_state.value.vehicleContext.hasFreshLocation || !_state.value.vehicleContext.signalsReady)) {
+            _state.value = _state.value.copy(autoPlanError = "차량 위치·속도·기어 정보를 확인한 뒤 순서를 계산합니다.")
+            return
+        }
         val attemptKey = "${session.sessionId}:${session.version}"
         if (autoPlanJob?.isActive == true) return
         if (!force && autoPlanAttemptKey == attemptKey) return
@@ -354,7 +408,9 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         autoPlanJob = viewModelScope.launch {
             _state.value = _state.value.copy(autoPlanning = true, autoPlanError = null)
             try {
-                val updated = MoagilApi(credentials.apiBaseUrl).plan(credentials, session)
+                val currentSession = _state.value.session?.takeIf { it.sessionId == session.sessionId } ?: session
+                val withCurrentOrigin = syncCurrentVehicleOrigin(currentSession)
+                val updated = MoagilApi(credentials.apiBaseUrl).plan(credentials, withCurrentOrigin)
                 val latest = _state.value.session
                 if (_state.value.credentials?.sessionId == session.sessionId && (latest == null || updated.version >= latest.version)) {
                     acceptSession(updated, null)
@@ -370,11 +426,67 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun syncOriginWhenUseful(point: Point) {
+        if (!BuildConfig.PLEOS_NATIVE_NAVIGATION || _state.value.busy || _state.value.autoPlanning) return
+        val session = _state.value.session ?: return
+        if (session.state !in setOf("COLLECTING", "PLANNED")) return
+        if (!_state.value.vehicleContext.signalsReady || !_state.value.vehicleContext.hasFreshLocation) return
+        if (session.startPoint.label == point.label && distanceMeters(session.startPoint, point) < 100.0) {
+            if (session.passengers.isNotEmpty() && session.route == null) scheduleAutoPlan(session)
+            return
+        }
+        if (originSyncJob?.isActive == true) return
+        originSyncJob = viewModelScope.launch {
+            val result = runCatching { syncCurrentVehicleOrigin(session) }
+            originSyncJob = null
+            result.onFailure { report(it) }
+                .onSuccess { updated -> if (updated.passengers.isNotEmpty() && updated.route == null) scheduleAutoPlan(updated) }
+        }
+    }
+
+    private suspend fun syncCurrentVehicleOrigin(session: DriverSession): DriverSession {
+        if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) return session
+        val context = _state.value.vehicleContext
+        check(context.signalsReady) { "차량 속도와 기어 상태를 확인할 수 없습니다. 연결과 권한을 확인해 주세요." }
+        check(context.hasFreshLocation) { "현재 차량 위치가 오래됐습니다. 위치 업데이트를 기다려 주세요." }
+        val point = checkNotNull(context.location) { "현재 차량 위치를 받지 못했습니다. 차량 위치 권한과 위치 서비스를 확인해 주세요." }
+        if (session.startPoint.label == point.label && distanceMeters(session.startPoint, point) < 100.0) return session
+        val credentials = requireCredentials()
+        val updated = MoagilApi(credentials.apiBaseUrl).saveSettings(
+            credentials = credentials,
+            session = session,
+            finalPoint = session.finalPoint,
+            priorityId = session.priorityPassengerId,
+            startPoint = point,
+        )
+        acceptSession(updated, null)
+        return updated
+    }
+
+    private fun distanceMeters(a: Point, b: Point): Double {
+        val earthRadius = 6_371_000.0
+        val lat1 = Math.toRadians(a.lat)
+        val lat2 = Math.toRadians(b.lat)
+        val deltaLat = lat2 - lat1
+        val deltaLon = Math.toRadians(b.lon - a.lon)
+        val latTerm = kotlin.math.sin(deltaLat / 2).let { it * it }
+        val lonTerm = kotlin.math.sin(deltaLon / 2).let { it * it }
+        val h = latTerm + kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * lonTerm
+        return 2 * earthRadius * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
+    }
+
     private suspend fun launchBusy(action: suspend () -> Unit) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, errorMessage = null)
         try { action() } catch (error: Exception) { report(error) }
-        finally { _state.value = _state.value.copy(busy = false) }
+        finally {
+            _state.value = _state.value.copy(busy = false)
+            val session = _state.value.session
+            if (BuildConfig.PLEOS_NATIVE_NAVIGATION) _state.value.vehicleContext.location?.let(::syncOriginWhenUseful)
+            if (session != null && session.state in setOf("COLLECTING", "PLANNED") && session.passengers.isNotEmpty() && session.route == null) {
+                scheduleAutoPlan(session)
+            }
+        }
     }
 
     private fun driverAction(action: suspend () -> Unit) = viewModelScope.launch { launchBusy(action) }
@@ -382,13 +494,20 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     override fun onCleared() {
         pollJob?.cancel()
         healthJob?.cancel()
+        vehicleContextPort.close()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { navigation.close() }
         super.onCleared()
     }
 
     private fun requireSession() = checkNotNull(_state.value.session) { "이동 정보를 먼저 불러와 주세요." }
     private fun requireCredentials() = checkNotNull(_state.value.credentials) { "차량 인증 정보가 없습니다." }
-    private fun ensureParked() = check(driving.state(_state.value.simulatedParked) == DrivingState.PARKED) { "정차 상태(시연)를 먼저 확인해 주세요." }
+    private fun ensureParked() {
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+            check(_state.value.vehicleContext.isParked) { "실제 차량의 정차와 P 기어가 확인돼야 조작할 수 있습니다." }
+        } else {
+            check(_state.value.simulatedParked) { "시연용 정차 상태를 먼저 확인해 주세요." }
+        }
+    }
 
     private fun report(error: Throwable) {
         val message = when (error) {

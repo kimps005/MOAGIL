@@ -41,10 +41,16 @@ class MoagilApi(private val baseUrl: String) {
     suspend fun snapshot(credentials: DriverCredentials): DriverSession =
         JsonModels.session(request("GET", "/api/sessions/${credentials.sessionId}", null, credentials.driverToken))
 
-    suspend fun saveSettings(credentials: DriverCredentials, session: DriverSession, finalPoint: Point?, priorityId: String?): DriverSession {
+    suspend fun saveSettings(
+        credentials: DriverCredentials,
+        session: DriverSession,
+        finalPoint: Point?,
+        priorityId: String?,
+        startPoint: Point = session.startPoint,
+    ): DriverSession {
         val body = JSONObject().apply {
             put("expectedVersion", session.version)
-            put("startPoint", JsonModels.pointJson(session.startPoint))
+            put("startPoint", JsonModels.pointJson(startPoint))
             put("finalPoint", finalPoint?.let(JsonModels::pointJson) ?: JSONObject.NULL)
             put("priorityPassengerId", priorityId ?: JSONObject.NULL)
         }

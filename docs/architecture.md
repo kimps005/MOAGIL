@@ -14,7 +14,7 @@ Kotlin/Compose 또는 브라우저 대체 화면 ─ driver token ─ Python std
 
 초기 PRD의 차량 화면 기술을 반영해 Kotlin/Compose `mockDebug` 앱을 추가했습니다. 서버는 Python 3.12 표준 라이브러리와 SQLite, 참가 웹 및 브라우저 대체 차량 화면은 정적 HTML/CSS/JavaScript로 구성하여 서버 실행에 외부 런타임 패키지가 필요하지 않습니다. PRD의 FastAPI/SQLAlchemy 및 React/Vite 스택은 채택하지 않았으며 구현 범위와 제한을 분리해 기록합니다.
 
-Android 차량 앱은 `vehicle-app/app`에 있으며 OkHttp로 같은 자체 API를 호출하고, Compose의 정차 게이트와 서버 version 검사를 함께 적용합니다. 운전자 token은 Android Keystore AES-GCM 키로 암호화해 앱 개인 저장소에 보관합니다. `mockDebug`의 `NavigationPort`는 mock 안내를 제공하고, `pleosDebug`는 공식 NaviHelper SDK를 이용해 선택한 하차 목적지 하나를 차량 내 내비에 요청합니다. Pleos 요청에는 SDK 콜백 대기 제한을 두지 않고 진행 경과 시간과 완료/오류 시간을 표시합니다. 콜백이 오기 전에는 하차 확인을 막습니다. 에뮬레이터에서는 `CAUSE_SEARCH_ROUTE` 오류 콜백이 15.5초 후 돌아왔으며 경로 성공은 아직 검증되지 않았습니다. `DrivingStatePort`와 정차 스위치는 두 변형 모두 시연 상태이며 차량 위치·차속 센서를 읽지 않습니다. Android cleartext 트래픽 허용은 debug 변형에만 있습니다. JDK 17과 SDK API 34에서 mock 단위 테스트 및 mock/Pleos APK 빌드가 성공했습니다.
+Android 차량 앱은 `vehicle-app/app`에 있으며 OkHttp로 같은 자체 API를 호출하고 서버 version 검사를 적용합니다. 운전자 token은 Android Keystore AES-GCM 키로 암호화해 앱 개인 저장소에 보관합니다. `mockDebug`는 시연용 정차 스위치와 모의 내비를 씁니다. `pleosDebug`는 NaviHelper로 다음 하차 목적지를 보내며 FusedLocation의 차량 위치를 세션 출발지로 동기화합니다. AAOS `CarPropertyManager`에서 차량 속도와 기어를 1초 간격으로 읽고, 속도가 거의 0이며 P 기어일 때만 운전자 조작을 허용합니다. 이 연동을 위한 FusedLocation, CAR_SPEED, CAR_POWERTRAIN 권한이 필요합니다. 현재 변경분은 코드만 반영했으며 APK 빌드와 Pleos 에뮬레이터에서의 값 수신은 아직 검증하지 않았습니다. Android cleartext 트래픽 허용은 debug 변형에만 있습니다.
 
 ## 세션 및 권한
 
@@ -42,4 +42,4 @@ COLLECTING ── plan ──> PLANNED ── start ──> ACTIVE ── all st
 
 ## 사용자 안전
 
-운전자 동작은 앱 로컬 `정차(시연)` 토글이 켜진 상태에서만 활성화됩니다. 이는 실제 차량 상태를 읽지 않습니다. 같은 LAN에서 서로 다른 기기 접근이 실패하면 네트워크 주소와 Windows 방화벽을 운영자가 확인해야 합니다. 자동 도착 감지와 실제 내비 호출은 없습니다.
+Mock 변형은 앱 로컬 `정차(시연)` 토글에서만 조작을 허용합니다. Pleos 변형은 현재 차량 속도와 P 기어가 읽히지 않으면 조작을 잠급니다. 실제 차량에서 권한과 신호가 제공되는지는 Pleos 에뮬레이터 및 실차 환경에서 별도로 검증해야 합니다. 같은 LAN에서 서로 다른 기기 접근이 실패하면 네트워크 주소와 Windows 방화벽을 운영자가 확인해야 합니다. 자동 도착 감지는 없습니다.
