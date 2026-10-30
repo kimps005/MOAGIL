@@ -1,11 +1,11 @@
 # Android 차량 앱
 
-이 모듈에는 두 빌드 변형이 있습니다.
+## 앱 변형
 
-- `mockDebug` (`kr.moagil.vehicle.mock`): Compose 차량용 시연 앱입니다. 이동 생성, QR 참가, 서버 폴링, 순서 계산·수동 편집, 모의 안내 성공/실패·재시도 및 단계별 하차를 제공합니다.
-- `pleosDebug` (`kr.moagil.vehicle`): 같은 흐름에서 현재 선택한 하차 목적지 하나를 Pleos Connect NaviHelper에 전달합니다. SDK 콜백까지 기다리며 제한 시간은 두지 않습니다. 진행 중 경과 시간을 표시하고 완료/오류 시 실제 소요 시간을 기록하며, 콜백 전에는 하차 완료를 처리하지 않습니다. 공개된 SDK 문서에서 경로 비용 행렬 API를 확인하지 못해 여러 순서 평가는 서버 OSRM이 담당합니다.
+- `mockDebug` (`kr.moagil.vehicle.mock`): Compose 시연 앱. 이동 생성, QR 참가·서버 동기화, 경로 계산과 수동 순서 변경, 모의 안내 재시도 및 단계별 하차를 제공합니다.
+- `pleosDebug` (`kr.moagil.vehicle`): 같은 화면에서 선택한 다음 하차 목적지를 Pleos Connect NaviHelper에 보냅니다. SDK 완료 콜백 또는 요청한 목적지와 일치하는 내비 주행 정보 콜백을 확인한 뒤에만 하차를 허용합니다.
 
-둘 다 운전자 동작 전에 `정차(시연)`을 켜야 합니다. 이 스위치는 실제 차량 센서가 아닙니다. Pleos 에뮬레이터에서 경로 요청 오류 `CAUSE_SEARCH_ROUTE` 콜백이 15.5초 후 돌아오는 것을 확인했지만, 경로 성공은 아직 검증되지 않았습니다. 실차 주행에는 사용하지 마세요.
+둘 다 운전자 동작 전에 `정차(시연)` 상태를 켜야 합니다. 차량 센서는 연결되지 않습니다. Pleos 앱은 선택된 목적지만 전달하고, 가능한 승객 순서는 서버의 OSRM 실제 도로망으로 평가합니다. 에뮬레이터에서는 `시연 지점 B`, 20km, 71분이 Pleos Navigation에 표시됐고 앱의 `onDrivingInfo` 콜백에서 목적지가 확인됐습니다. 경로 완료 전용 `onRoutingCompleted`는 오지 않았습니다. Pleos 앱의 보조 POI 상세 조회는 빈 ID로 HTTP 400을 기록하지만 경로와 목적지 확인은 동작합니다. 상세 기록은 [`../docs/validation.md`](../docs/validation.md)를 참고하세요.
 
 ## 빌드
 
@@ -15,14 +15,20 @@
 .\gradlew.bat testMockDebugUnitTest assembleMockDebug assemblePleosDebug
 ```
 
-SDK 의존성은 공식 Pleos Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입니다. `pleosDebug` 변형은 `pleos.car.permission.NAVI_ROUTE_SEARCH` 권한을 선언합니다. 에뮬레이터용 Pleos APK 경로는 `app/build/outputs/apk/pleos/debug/app-pleos-x86_64-debug.apk`, ARM64용은 `app/build/outputs/apk/pleos/debug/app-pleos-arm64-v8a-debug.apk`입니다. Mock APK도 같은 하위 경로의 `mock/debug`에 생성됩니다.
+Pleos SDK는 공식 Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입니다. `pleosDebug`만 `pleos.car.permission.NAVI_ROUTE_SEARCH` 권한을 요청합니다. 에뮬레이터용 x86_64 APK와 Android 기기용 ARM64 APK는 `app/build/outputs/apk/pleos/debug/`에 생성됩니다. Mock APK는 `app/build/outputs/apk/mock/debug/`에 생성됩니다.
 
-네이버 지도 Client ID는 `local.properties`에 `naver.map.clientId=발급받은_Client_ID`로 설정합니다. 기존 `sdk.dir` 줄을 유지하고 이 파일은 Git에 추가하지 않습니다. 네이버 애플리케이션에 지도 앱을 등록할 경우 mock 패키지 `kr.moagil.vehicle.mock`과 Pleos 패키지 `kr.moagil.vehicle`을 필요한 빌드 변형에 맞춰 등록하세요.
+네이버 Android 지도를 쓰려면 `local.properties`에 `naver.map.clientId=발급받은_Client_ID`를 추가합니다. 기존 `sdk.dir` 줄은 유지하고 이 파일은 Git에 추가하지 않습니다. 네이버 앱 등록 시 mock 패키지 `kr.moagil.vehicle.mock`과 Pleos 패키지 `kr.moagil.vehicle`을 각각 등록하세요.
 
-## 서버 연결
+## 서버 주소
 
-- Android 에뮬레이터 기본 API 주소: `http://10.0.2.2:8080`
-- 실제 스마트폰/차량 기기: PC LAN 주소 또는 외부 HTTPS 도메인/터널 주소
-- API 주소와 QR 주소가 다르면 서버의 `MOAGIL_PUBLIC_BASE_URL`을 휴대폰이 접근할 수 있는 주소로 지정합니다. 서로 다른 Wi-Fi를 쓸 때는 외부 HTTPS 도메인이나 터널이 필요합니다.
+- Android 에뮬레이터: `http://10.0.2.2:8080`
+- 스마트폰/차량 기기: PC LAN 주소 또는 외부에서 접속할 수 있는 HTTPS 도메인/터널
+- QR 공개 주소가 API 주소와 다르면 서버 환경 변수 `MOAGIL_PUBLIC_BASE_URL`을 설정합니다.
 
-HTTP 허용은 개발용 manifest overlay에 한정됩니다. Pleos 최종 내비 요청은 NaviHelper SDK를 사용하며, `pleosDebug`에서만 Pleos SDK가 포함됩니다. 기본 서버 경로 비교는 OSRM 도로망이며, 네이버 Directions 5는 서버에서 명시적으로 선택할 수 있습니다. 상세 검증 결과와 미확인 항목은 [`../docs/validation.md`](../docs/validation.md)를 참고하세요.
+Pleos DNS 기본 전달이 실패하는 AVD는 에뮬레이터를 다음 옵션으로 재시작해 해결했습니다.
+
+```powershell
+emulator.exe -avd Pleos_Connect_v2.1.0 -dns-server 172.20.10.1 -no-snapshot-load -no-window -no-audio
+```
+
+실제 Navigation route 완료, 실차 센서와 실제 주행은 검증 범위 밖입니다. 앱은 시연용이며 실차 운행에 사용하지 마세요.

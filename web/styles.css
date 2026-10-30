@@ -205,3 +205,106 @@ body.passenger-body { color-scheme: light; color: #132c34; background: #f1f5f3; 
   .footer { flex-direction: column; gap: 7px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* Driver dashboard: light surfaces and clear contrast for quick scanning. */
+:root {
+  color-scheme: light;
+  --bg: #f4f7f6;
+  --panel: #ffffff;
+  --panel-2: #f7faf9;
+  --line: #e3eae7;
+  --muted: #64736e;
+  --text: #18312b;
+  --teal: #167b6e;
+  --teal-dark: #e7f4f0;
+  --orange: #a45a21;
+  --red: #b33a34;
+}
+body:not(.passenger-body) { color-scheme: light; color: var(--text); background: #f4f7f6; }
+body:not(.passenger-body) .app-shell { width: min(1440px, 100%); padding: 0 32px 48px; }
+body:not(.passenger-body) .topbar { border-bottom-color: var(--line); }
+body:not(.passenger-body) .brand { color: var(--text); }
+body:not(.passenger-body) .brand-mark { color: #fff; background: #167b6e; box-shadow: none; }
+body:not(.passenger-body) .brand-sub { color: var(--muted); }
+body:not(.passenger-body) .status-pill { color: #42554e; background: #fff; border-color: var(--line); }
+body:not(.passenger-body) .status-dot { background: #239878; box-shadow: 0 0 0 4px rgba(35,152,120,.10); }
+body:not(.passenger-body) .status-dot.off { background: #b68543; box-shadow: 0 0 0 4px rgba(182,133,67,.11); }
+body:not(.passenger-body) .mock-pill { color: #276f62; border-color: #d5eae3; background: #edf7f3; }
+body:not(.passenger-body) .park-toggle { color: #875623; border-color: #ead8bd; background: #fff8ed; }
+body:not(.passenger-body) .park-toggle:hover { border-color: #d6b889; background: #fff3df; }
+body:not(.passenger-body) .park-toggle.is-parked { color: #fff; border-color: #167b6e; background: #167b6e; }
+body:not(.passenger-body) .eyebrow { color: #197d6e; }
+body:not(.passenger-body) .subcopy { color: #63736d; }
+body:not(.passenger-body) .btn { color: #28423a; border-color: #dce6e1; background: #fff; box-shadow: 0 1px 2px rgba(25,55,43,.04); }
+body:not(.passenger-body) .btn:hover:not(:disabled) { color: #146e61; border-color: #9dcfc1; background: #f3faf7; }
+body:not(.passenger-body) .btn.primary { color: #fff; background: #167b6e; border-color: #167b6e; box-shadow: 0 5px 14px rgba(22,123,110,.16); }
+body:not(.passenger-body) .btn.primary:hover:not(:disabled) { color: #fff; background: #11685e; border-color: #11685e; }
+body:not(.passenger-body) .btn.soft { color: #126f62; border-color: #d3e9e2; background: #eff8f4; }
+body:not(.passenger-body) .btn.warn { color: #a3423e; border-color: #f0d9d6; background: #fff8f7; }
+body:not(.passenger-body) .card { border-color: #e4ebe8; background: #fff; box-shadow: 0 8px 26px rgba(25,55,43,.055); }
+body:not(.passenger-body) .card-pad { padding: 22px; }
+body:not(.passenger-body) .card-kicker { color: #71817a; }
+body:not(.passenger-body) .card-title { color: #1c3830; }
+body:not(.passenger-body) .mini-note { color: #64756e; }
+body:not(.passenger-body) .recruit-card { color: #183b32; background: linear-gradient(135deg,#f0f8f4,#f7faf8 70%); }
+body:not(.passenger-body) .recruit-copy h2 { color: #183b32; }
+body:not(.passenger-body) .recruit-copy .eyebrow { color: #177968; }
+body:not(.passenger-body) .join-link { border-top: 1px solid #e2ebe6; padding-top: 10px; }
+body:not(.passenger-body) .link-text { color: #50665e; }
+body:not(.passenger-body) .tiny-button { color: #167b6e; }
+body:not(.passenger-body) .stat-box { border-color: #e5ece8; background: #fbfdfc; }
+body:not(.passenger-body) .stat-label { color: #65766f; }
+body:not(.passenger-body) .stat-value { color: #1c3830; }
+body:not(.passenger-body) .stat-value small { color: #708078; }
+body:not(.passenger-body) .map-card { border-color: #e0e8e3; background: #e7eee9; }
+body:not(.passenger-body) .passenger-row { border-color: #e4ebe8; background: #fbfdfc; }
+body:not(.passenger-body) .avatar { color: #176c5e; background: #dff2eb; }
+body:not(.passenger-body) .icon-btn { color: #53665e; border-color: #dce6e1; background: #fff; }
+body:not(.passenger-body) .icon-btn:hover:not(:disabled) { color: #126f62; border-color: #a4cfc1; background: #f2faf6; }
+body:not(.passenger-body) .empty-list { color: #687971; border-color: #d9e4de; background: #fbfdfc; }
+body:not(.passenger-body) .route-panel { border-color: #e3ebe7; background: #fff; }
+body:not(.passenger-body) .route-top { border-bottom-color: #e8efeb; }
+body:not(.passenger-body) .route-total { color: #183b32; }
+body:not(.passenger-body) .route-total span, body:not(.passenger-body) .route-meta { color: #6a7b73; }
+body:not(.passenger-body) .order-number { color: #147665; background: #e9f5f0; }
+body:not(.passenger-body) .order-name { color: #203b33; }
+body:not(.passenger-body) .order-destination { color: #687970; }
+body:not(.passenger-body) .order-item + .order-item { border-top-color: #edf1ef; }
+body:not(.passenger-body) .field label { color: #52665d; }
+body:not(.passenger-body) .field select, body:not(.passenger-body) .field input { color: #203b33; border-color: #dce6e1; background: #fff; }
+body:not(.passenger-body) .field select:focus, body:not(.passenger-body) .field input:focus { border-color: #55a895; box-shadow: 0 0 0 3px rgba(44,145,122,.1); }
+body:not(.passenger-body) .inline-check { color: #42564d; }
+body:not(.passenger-body) .safety-banner { color: #86531d; border-color: #efe0c9; background: #fff9ef; }
+body:not(.passenger-body) .safety-banner.ready { color: #176e5d; border-color: #d4eae1; background: #eff8f4; }
+body:not(.passenger-body) .active-card { border: 1px solid #d6e9e0; border-radius: 15px; padding: 15px; background: #f2faf6; }
+body:not(.passenger-body) .active-destination { border-color: #cfe7dc; background: #fff; }
+body:not(.passenger-body) .active-destination strong { color: #167b6e; }
+body:not(.passenger-body) .active-destination small { color: #61736a; }
+body:not(.passenger-body) .notice-bar { color: #586d63; border-color: #dfe9e4; background: #f7faf8; }
+body:not(.passenger-body) .notice-bar strong { color: #245d4e; }
+body:not(.passenger-body) .footer { color: #718078; }
+body:not(.passenger-body) .toast { color: #19362d; border-color: #cfe6dd; background: #fff; box-shadow: 0 14px 38px rgba(20,45,35,.16); }
+body:not(.passenger-body) .capture-chip { color: #815321; border-color: #eadcc5; background: rgba(255,250,241,.96); }
+body:not(.passenger-body) .preview-panel { color: #1c3830; border-color: #e0e9e4; background: #fff; box-shadow: 0 30px 90px rgba(13,35,27,.22); }
+body:not(.passenger-body) .preview-panel .subcopy { color: #64756e; }
+
+.workflow-card { display: grid; grid-template-columns: minmax(0,1fr) minmax(230px,.62fr); align-items: center; gap: 18px; margin: 0 0 18px; padding: 15px 18px; border: 1px solid #e2eae6; border-radius: 18px; background: #fff; box-shadow: 0 5px 18px rgba(25,55,43,.04); }
+.workflow-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; list-style: none; margin: 0; padding: 0; }
+.workflow-step { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid #e6ece9; border-radius: 12px; color: #617169; background: #fbfdfc; font-size: 11px; font-weight: 700; line-height: 1.35; }
+.workflow-step.is-current { color: #155f52; border-color: #9ecfbe; background: #eff8f4; }
+.workflow-step.is-done { color: #377568; border-color: #d6e9e1; background: #f7fbf9; }
+.workflow-number { display: grid; flex: 0 0 24px; width: 24px; height: 24px; place-items: center; border-radius: 50%; color: #687971; background: #e9efec; font-size: 11px; font-weight: 800; }
+.workflow-step.is-current .workflow-number, .workflow-step.is-done .workflow-number { color: #fff; background: #167b6e; }
+.workflow-hint { margin: 0; color: #5d7067; font-size: 11px; line-height: 1.6; }
+
+@media (max-width: 760px) {
+  body:not(.passenger-body) .app-shell { padding: 0 18px 36px; }
+  .workflow-card { grid-template-columns: 1fr; gap: 10px; }
+  .workflow-hint { padding: 0 2px; }
+}
+@media (max-width: 560px) {
+  body:not(.passenger-body) .app-shell { padding: 0 14px 30px; }
+  .workflow-card { padding: 12px; }
+  .workflow-list { grid-template-columns: 1fr; gap: 6px; }
+  .workflow-step { padding: 8px 10px; }
+}

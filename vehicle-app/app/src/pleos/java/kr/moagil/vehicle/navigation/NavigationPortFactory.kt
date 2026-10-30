@@ -4,10 +4,12 @@ import ai.pleos.playground.navi.constants.NaviErrorCode
 import ai.pleos.playground.navi.constants.RouteOption
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStartInfo
+import ai.pleos.playground.navi.data.DrivingInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -15,11 +17,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kr.moagil.vehicle.data.Point
 
 fun createNavigationPort(context: Context): NavigationPort = PleosNavigationPort(context)
 
 private class PleosNavigationPort(context: Context) : NavigationPort {
+    companion object {
+        private const val TAG = "MOAGIL_PLEOS_ROUTE"
+    }
+
     private val appContext = context.applicationContext
     private val routeLock = Mutex()
     private val pendingResult = AtomicReference<PendingRoute?>(null)
@@ -34,6 +41,8 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
     private data class PendingRoute(
         val result: CompletableDeferred<NavigationResult>,
         val startedAtElapsedMs: Long,
+        val expectedDestination: String,
+        val routeStarted: AtomicBoolean = AtomicBoolean(false),
     ) {
         fun elapsedMs(): Long = (SystemClock.elapsedRealtime() - startedAtElapsedMs).coerceAtLeast(0)
     }
@@ -41,7 +50,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
     override suspend fun navigateTo(point: Point): NavigationResult {
         val startedAtElapsedMs = SystemClock.elapsedRealtime()
         return routeLock.withLock {
-            val pending = PendingRoute(CompletableDeferred(), startedAtElapsedMs)
+            val pending = PendingRoute(CompletableDeferred(), startedAtElapsedMs, point.label)
             pendingResult.set(pending)
             try {
                 val connected = connect()
@@ -57,7 +66,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
                             poiName = point.label,
                             poiId = "",
                             address = point.label,
-                            poiSubId = "",
+                            poiSubId = "0",
                             routeOption = RouteOption.RECOMMENDED,
                         ),
                     )
@@ -87,17 +96,45 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         val ready = CompletableDeferred<Result<Unit>>()
         val helper = NaviHelper(appContext)
         val listener = object : NaviHelperEventListener {
-            override fun onRouteStarted(routeStartInfo: RouteStartInfo) = Unit
+            override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
+                Log.i(TAG, "Pleos started route search: $routeStartInfo")
+                pendingResult.get()?.routeStarted?.set(true)
+            }
 
             override fun onRoutingCompleted() {
+                Log.i(TAG, "Pleos completed route search")
                 pendingResult.get()?.let { pending ->
                     pending.result.complete(NavigationResult.Completed(pending.elapsedMs()))
                 }
             }
 
             override fun onError(errorCode: NaviErrorCode) {
+                Log.e(TAG, "Pleos route search error: $errorCode")
                 pendingResult.get()?.let { pending ->
                     pending.result.complete(NavigationResult.Rejected("내비 오류 $errorCode", pending.elapsedMs()))
+                }
+            }
+
+            override fun onRouteCancelled() {
+                val pending = pendingResult.get() ?: return
+                Log.w(TAG, "Pleos route cancelled after start=${pending.routeStarted.get()}")
+                if (pending.routeStarted.get()) {
+                    pending.result.complete(NavigationResult.Rejected("Pleos 내비가 경로 탐색을 취소했습니다.", pending.elapsedMs()))
+                }
+            }
+
+            override fun onDrivingInfo(drivingInfo: DrivingInfo) {
+                val pending = pendingResult.get() ?: return
+                val destination = drivingInfo.destination
+                if (pending.routeStarted.get() && destination.name.equals(pending.expectedDestination, ignoreCase = true)) {
+                    Log.i(TAG, "Pleos confirmed requested destination via onDrivingInfo: ${destination.name}, ${destination.distance}m, ${destination.duration}s")
+                    pending.result.complete(
+                        NavigationResult.DestinationConfirmed(
+                            pending.elapsedMs(),
+                            destination.distance,
+                            destination.duration,
+                        ),
+                    )
                 }
             }
         }

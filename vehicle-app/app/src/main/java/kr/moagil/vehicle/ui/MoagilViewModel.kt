@@ -99,7 +99,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             priorityId = demoSession?.priorityPassengerId,
             finalEnabled = demoSession?.finalPoint != null,
             errorMessage = null,
-            notice = if (demo) "시연용 참가자 4명을 불러왔습니다. 좌표와 경로는 모의 데이터입니다." else "새 이동을 만들었습니다. 초대 QR에서 참가를 기다립니다.",
+            notice = if (demo) "시연용 위치 4개를 불러왔습니다. 순서를 계산하면 서버가 실제 도로 경로를 비교합니다." else "새 이동을 만들었습니다. 초대 QR에서 참가를 기다립니다.",
             navigationMessage = "",
         )
         if (demoSession == null) refreshNow(credentials)
@@ -128,7 +128,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         val session = requireSession()
         check(session.passengers.isNotEmpty()) { "동승자가 한 명 이상 등록돼야 경로를 계산할 수 있습니다." }
         val updated = MoagilApi(requireCredentials().apiBaseUrl).plan(requireCredentials(), session)
-        acceptSession(updated, "${updated.route?.evaluatedCount ?: 0}개 순서를 비교했습니다. 결과는 직선거리 기반 시연용 추정입니다.")
+        val routeNote = updated.route?.note ?: "경로 결과를 확인하지 못했습니다."
+        acceptSession(updated, "${updated.route?.evaluatedCount ?: 0}개 순서를 비교했습니다. $routeNote")
     }
 
     fun movePassenger(passengerId: String, delta: Int) = driverAction {
@@ -252,6 +253,10 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
             is NavigationResult.Completed -> _state.value.copy(
                 navigationMessage = "Pleos 내비 경로 탐색 완료 콜백 확인 · ${point.label} · ${formatElapsed(result.elapsedMs)}초",
+                navigationConfirmed = true,
+            )
+            is NavigationResult.DestinationConfirmed -> _state.value.copy(
+                navigationMessage = "Pleos 내비 목적지 수신 확인 · ${point.label} · ${formatElapsed(result.elapsedMs)}초 · ${result.distanceM}m / ${result.durationSec / 60}분",
                 navigationConfirmed = true,
             )
             is NavigationResult.Rejected -> {

@@ -157,17 +157,29 @@ function driverMarkup() {
   const routeProviderLabel = state.routingProvider === 'naver' ? '네이버 Directions · 실시간 교통' : state.routingProvider === 'osrm' ? 'OSRM · 실시간 교통 없음' : '모의 경로';
   const mobileJoin = state.credentials ? state.credentials.joinBaseUrl + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken) : '';
   const capture = captureMode;
-  let pageTitle = hasSession ? (state.session.state === 'ACTIVE' ? '이동 중에도, 다음 목적지는 또렷하게.' : '모두의 목적지를 한눈에.') : '여러 목적지, 순서는 한 번에.';
-  let pageSub = hasSession ? (state.session.state === 'ACTIVE' ? '정차 확인 후 운전자가 하차를 완료하고 다음 안내로 이어갑니다.' : '각자 위치를 등록하면 가능한 순서를 비교하고 함께 확인합니다.') : '모임이 끝난 뒤, 각자의 하차 지점을 모아 가장 짧은 순서를 찾아보세요.';
+  const stepIndex = !hasSession ? 0 : state.session.state === 'ACTIVE' ? 2 : state.session.state === 'PLANNED' ? 1 : 0;
+  const workflowHint = !hasSession
+    ? '빈 이동을 만들거나 예시 데이터로 먼저 화면을 살펴보세요.'
+    : state.session.state === 'ACTIVE'
+      ? '현재 목적지에 도착한 뒤 완료를 누르면 다음 목적지로 이어집니다.'
+      : state.session.state === 'PLANNED'
+        ? '지도와 추천 순서를 확인하고 안내를 시작하세요.'
+        : 'QR을 공유해 위치를 모은 뒤, 정차 확인 후 최적 순서를 계산하세요.';
+  const workflow = '<section class="workflow-card" aria-label="이동 진행 단계"><ol class="workflow-list">'
+    + ['이동 만들기 · 위치 모으기', '도로 경로로 순서 확인', '순서 확정 · 단계별 안내'].map((label, index) => '<li class="workflow-step ' + (index === stepIndex ? 'is-current' : index < stepIndex ? 'is-done' : '') + '" ' + (index === stepIndex ? 'aria-current="step"' : '') + '><span class="workflow-number">' + (index < stepIndex ? '✓' : index + 1) + '</span><span>' + label + '</span></li>').join('')
+    + '</ol><p class="workflow-hint">' + workflowHint + '</p></section>';
+  let pageTitle = hasSession ? (state.session.state === 'ACTIVE' ? '다음 목적지를 확인하고 이동을 이어가세요.' : '모두의 하차 지점을 한눈에 확인하세요.') : '여러 목적지를 모아, 좋은 순서를 찾아요.';
+  let pageSub = hasSession ? (state.session.state === 'ACTIVE' ? '운전자가 도착을 확인하면 다음 하차 지점으로 넘어갑니다.' : 'QR로 위치를 받고 실제 도로망으로 순서를 비교합니다.') : '이동을 만들고 QR을 공유하면 각자 내릴 곳을 등록할 수 있어요.';
   const phoneUrl = capture && state.credentials ? location.origin + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken) : '';
   const phonePreview = capture && state.showPhone ? '<div class="preview-backdrop"><section class="preview-panel"><div class="preview-copy"><div class="eyebrow">시연용 브라우저 · 실제 휴대폰 연결 아님</div><h2>동승자가 모바일 화면에서<br>직접 핀을 등록해요.</h2><p class="subcopy">화면 오른쪽의 휴대폰은 이 브라우저 안에서 열린 참가 페이지입니다. 실제 QR은 촬영 보호 모드로 가렸습니다.</p><button class="btn" data-action="close-preview">미리보기 닫기</button></div><div class="phone-device"><div class="phone-notch"></div><iframe title="시연용 참가자 모바일 화면" src="' + esc(phoneUrl) + '"></iframe></div></section></div>' : '';
   return '<div class="app-shell">'
-    + '<header class="topbar"><a class="brand" href="/"><span class="brand-mark">M</span><span><span class="brand-name">MOAGIL</span><span class="brand-sub">모아길 · 함께 가는 길</span></span></a><div class="nav-right"><span class="mock-pill">실제 지도·경로 · 차량 연동 모의</span>'
-    + '<button class="park-toggle ' + (state.parked ? 'is-parked' : '') + '" data-action="park">' + (state.parked ? '● 정차 확인 · 시연' : '○ 정차 상태 확인') + '</button><span class="status-pill"><i class="status-dot ' + (hasSession ? '' : 'off') + '"></i>' + (hasSession ? state.session.state === 'ACTIVE' ? '이동 진행 중' : '서버 연결됨' : '새 이동 대기') + '</span></div></header>'
-    + '<section class="page-title"><div><div class="eyebrow">공동 이동 데모 · 차량 화면</div><h1>' + pageTitle + '</h1><p class="subcopy">' + pageSub + '</p></div><div class="button-row">' + (hasSession ? '<button class="btn" data-action="new">새 이동 만들기</button>' : '<button class="btn" data-action="new">새 이동 만들기</button>') + '<button class="btn primary" data-action="demo">시연 데이터로 시작</button></div></section>'
+    + '<header class="topbar"><a class="brand" href="/"><span class="brand-mark">M</span><span><span class="brand-name">MOAGIL</span><span class="brand-sub">모아길 · 함께 가는 길</span></span></a><div class="nav-right"><span class="mock-pill">실제 도로 경로 · 안내 시연</span>'
+    + '<button class="park-toggle ' + (state.parked ? 'is-parked' : '') + '" data-action="park" aria-pressed="' + state.parked + '" title="테스트용 상태입니다. 차량 센서를 읽지 않습니다.">' + (state.parked ? '✓ 정차 확인됨 · 시연' : '정차 상태 확인 · 시연') + '</button><span class="status-pill"><i class="status-dot ' + (hasSession ? '' : 'off') + '"></i>' + (hasSession ? state.session.state === 'ACTIVE' ? '이동 진행 중' : '서버 연결됨' : '새 이동 대기') + '</span></div></header>'
+    + '<section class="page-title"><div><div class="eyebrow">공동 이동 · 차량 화면</div><h1>' + pageTitle + '</h1><p class="subcopy">' + pageSub + '</p></div><div class="button-row"><button class="btn" data-action="new">새 이동 만들기</button><button class="btn primary" data-action="demo">예시 데이터로 시작</button></div></section>'
+    + workflow
     + (hasSession ? '<section class="dashboard-grid">'
       + '<div class="card">'
-      + '<div class="card-pad"><div class="card-head"><div><div class="card-kicker">참여 링크 · ' + shortId(state.session.sessionId) + '</div><h2 class="card-title">동승자 초대</h2></div><span class="status-pill">' + (state.session.passengers.length) + ' / 4명</span></div>'
+      + '<div class="card-pad"><div class="card-head"><div><div class="card-kicker">1단계 · 위치 모으기 · ' + shortId(state.session.sessionId) + '</div><h2 class="card-title">동승자를 초대하세요</h2></div><span class="status-pill">' + (state.session.passengers.length) + ' / 4명</span></div>'
       + '<div class="recruit-card"><div class="recruit-copy"><div class="eyebrow">QR로 바로 참여</div><h2>각자 내릴 곳을<br>직접 등록해요.</h2><p class="mini-note">앱 설치나 회원가입 없이 모바일 브라우저에서 참여할 수 있어요.</p><div class="join-link"><span class="link-text">' + esc(state.credentials?.joinBaseUrl || location.origin) + '/join/' + shortId(state.session.sessionId) + '?invite=••••••••</span><button class="tiny-button" data-action="copy">링크 복사</button></div>' + (capture ? '<button class="tiny-button" style="margin-top:9px" data-action="preview">휴대폰 미리보기 열기 →</button>' : '') + '</div><div class="qr-card ' + (capture ? 'capture-mode' : '') + '" id="qr-card">' + (capture ? '<div class="qr-masked"></div><span>촬영 보호 · 초대 QR 가림</span>' : '<canvas id="invite-qr" aria-label="모바일 초대 QR 코드"></canvas><span>모바일 카메라로 스캔</span>') + '</div></div>'
       + '<div class="stat-grid"><div class="stat-box"><div class="stat-label">참여 인원</div><div class="stat-value">' + state.session.passengers.length + '<small> / 4</small></div></div><div class="stat-box"><div class="stat-label">계산된 순서</div><div class="stat-value">' + (state.session.routeSnapshot?.evaluatedCount || '—') + '<small> 가지</small></div></div><div class="stat-box"><div class="stat-label">세션 상태</div><div class="stat-value" style="font-size:14px">' + (state.session.state === 'COLLECTING' ? '모집 중' : state.session.state === 'PLANNED' ? '순서 확인' : state.session.state === 'ACTIVE' ? '안내 중' : '완료') + '</div></div></div></div>'
       + '</div>'
@@ -175,13 +187,13 @@ function driverMarkup() {
       + '</section>'
       + '<section class="content-grid">'
       + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">현재 세션</div><h2 class="card-title">동승자 위치</h2></div><span class="mini-note">' + (collecting ? '등록 후 2초 이내 반영' : state.session.state === 'ACTIVE' ? '모의 안내 중' : '세션 정보') + '</span></div>' + passengerRows() + '</div>'
-        + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">' + mapName + ' 실제 도로망</div><h2 class="card-title">하차 순서 추천</h2></div><span class="mini-note">' + routeProviderLabel + '</span></div>'
+        + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">2단계 · 경로 비교</div><h2 class="card-title">추천 하차 순서</h2></div><span class="mini-note">' + routeProviderLabel + '</span></div>'
       + (state.session.state === 'ACTIVE' ? '<div class="active-card"><div class="safety-banner ready">● 모의 내비 안내 · 운전자 정차 확인 상태</div><div class="mini-note">현재 단계 · ' + esc(destination.type) + '</div><div class="active-destination"><small>다음 안내 목적지</small><strong>' + esc(destination.label) + '</strong><small>' + (destination.point ? destination.point.lat.toFixed(5) + ', ' + destination.point.lon.toFixed(5) : '하차 단계가 모두 끝났습니다') + '</small></div><div class="route-actions">' + (currentPassenger ? '<button class="btn primary" data-action="complete-stop">하차 완료 · 시연</button>' : '<button class="btn primary" data-action="complete-trip">' + (finalArrived ? '최종 목적지 도착 · 시연' : '이동 마무리 · 시연') + '</button>') + '<button class="btn warn" data-action="end">이동 취소</button></div></div>'
       : '<div class="safety-banner ' + (state.parked ? 'ready' : '') + '">' + (state.parked ? '● 정차(시연) 상태입니다. 이 상태는 실제 차량 감지가 아닙니다.' : '○ 운전자 입력은 정차 상태에서만 열립니다. 정차 확인을 눌러 시연을 진행하세요.') + '</div>'
         + routeRows()
          + (state.routingProvider === 'naver' && collecting ? '<div class="notice-bar">네이버 Directions 5로 최대 24개 순서를 비교합니다. 계산 한 번에 최대 24회 API 요청이 발생하며 계정 쿼터·요금이 적용될 수 있습니다.</div>' : '')
         + '<div class="settings"><div class="field"><label for="priority">먼저 내릴 동승자</label><select id="priority" ' + (!state.parked || !collecting ? 'disabled' : '') + '><option value="">지정하지 않음</option>' + state.session.passengers.map(person => '<option value="' + esc(person.id) + '" ' + (person.id === state.session.priorityPassengerId ? 'selected' : '') + '>' + esc(person.displayName) + '</option>').join('') + '</select></div><div class="field"><label for="final-choice">운전자 최종 목적지</label><select id="final-choice" ' + (!state.parked || !collecting ? 'disabled' : '') + '><option value="none" ' + (!finalEnabled ? 'selected' : '') + '>마지막 하차에서 종료</option><option value="preset" ' + (finalEnabled ? 'selected' : '') + '>시연 최종 목적지 포함</option></select></div></div>'
-        + '<div class="route-actions">' + (state.session.state === 'PLANNED' ? '<button class="btn" data-action="plan" ' + (!state.parked ? 'disabled' : '') + '>다시 계산</button><button class="btn primary" data-action="start" ' + (!state.parked ? 'disabled' : '') + '>경로 확정 · 모의 안내</button>' : '<button class="btn primary" data-action="plan" ' + (!state.parked || state.session.passengers.length < 1 ? 'disabled' : '') + '>가능한 순서 계산</button>') + (state.session.state !== 'ACTIVE' ? '<button class="btn warn" data-action="end">이동 종료</button>' : '') + '</div>')
+        + '<div class="route-actions">' + (state.session.state === 'PLANNED' ? '<button class="btn" data-action="plan" ' + (!state.parked ? 'disabled' : '') + '>순서 다시 계산</button><button class="btn primary" data-action="start" ' + (!state.parked ? 'disabled' : '') + '>이 순서로 안내 시작</button>' : '<button class="btn primary" data-action="plan" ' + (!state.parked || state.session.passengers.length < 1 ? 'disabled' : '') + '>최적 순서 계산</button>') + (state.session.state !== 'ACTIVE' ? '<button class="btn warn" data-action="end">이동 종료</button>' : '') + '</div>')
       + '</div></section>'
       : '<section class="dashboard-grid"><div class="card card-pad"><div class="eyebrow">실제 도로망 경로 계산</div><h2 class="card-title" style="font-size:23px;margin:8px 0 12px">각자 핀을 놓으면,<br>모두의 하차 순서를 찾습니다.</h2><p class="subcopy" style="font-size:12px">' + mapName + ' 지도와 ' + routeProviderLabel + '으로 최대 24개 순서를 비교합니다. 실제 차량 내비 안내는 포함하지 않습니다.</p><div class="route-actions" style="margin-top:18px"><button class="btn primary" data-action="new">빈 이동 만들기</button><button class="btn" data-action="demo">예시 4명으로 둘러보기</button></div><div class="notice-bar"><strong>사용 흐름</strong><br>① 이동 만들기 → ② 정차 상태 확인 → ③ QR 공유 및 하차 위치 등록 → ④ 실제 도로 경로 계산 → ⑤ 단계별 모의 안내</div></div><div class="card map-card"><div class="map-topline"><span class="map-label">' + mapName + ' 실제 도로 지도</span><span class="map-label">' + routeProviderLabel + '</span></div><div id="driver-map" class="driver-map" role="application" aria-label="' + mapName + ' 실제 도로 지도"></div><div class="map-legend"><span class="legend-item"><i class="legend-dot dark"></i>출발지</span><span class="legend-item"><i class="legend-dot"></i>하차 위치</span></div></div></section>')
      + '<div class="notice-bar"><strong>연동 범위 안내</strong> · 지도와 경로는 설정한 실제 지도·경로 서비스를 사용합니다. 실시간 교통은 네이버 경로 제공자 사용 시에만 반영되며, 차량 센서·Pleos 내비 연동과 안전한 정차 판단은 시연 범위에 포함되지 않습니다.</div>'
@@ -345,15 +357,15 @@ async function handleAction(button) {
       const next = index + Number(button.dataset.delta);
       if (next < 0 || next >= order.length) return;
       [order[index], order[next]] = [order[next], order[index]];
-      await mutate('/select-order', { expectedVersion: state.session.version, order });
-      return toast('선택한 순서의 시연용 추정값을 다시 계산했습니다.');
+      const updated = await mutate('/select-order', { expectedVersion: state.session.version, order });
+      return toast('새 순서의 경로를 계산했습니다. ' + (updated.routeSnapshot?.note || '경로 정보를 확인해 주세요.'));
     }
     if (action === 'plan') {
       if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
       await saveSettings();
       if (state.session.passengers.length < 1) return toast('동승자 한 명 이상 등록해 주세요.');
-      await mutate('/plan', { expectedVersion: state.session.version });
-      return toast('가능한 모든 순서를 비교했습니다. 시연용 추정값입니다.');
+      const updated = await mutate('/plan', { expectedVersion: state.session.version });
+      return toast((updated.routeSnapshot?.evaluatedCount || 0) + '개 순서를 비교했습니다. ' + (updated.routeSnapshot?.note || '경로 정보를 확인해 주세요.'));
     }
     if (action === 'start') {
       if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
