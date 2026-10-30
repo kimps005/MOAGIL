@@ -67,7 +67,7 @@
       if (Array.isArray(geometry) && geometry.length > 1) {
         const path = geometry.map(pair => new naver.maps.LatLng(Number(pair[1]), Number(pair[0]))).filter(point => Number.isFinite(point.lat()) && Number.isFinite(point.lng()));
         if (path.length > 1) {
-          const route = new naver.maps.Polyline({ map, path, strokeColor: '#138f85', strokeWeight: 6, strokeOpacity: 0.94, strokeLineCap: 'round', strokeLineJoin: 'round', zIndex: 100 });
+          const route = new naver.maps.Polyline({ map, path, strokeColor: '#647cf2', strokeWeight: 6, strokeOpacity: 0.94, strokeLineCap: 'round', strokeLineJoin: 'round', zIndex: 100 });
           overlays.push(route);
           path.forEach(point => bounds.extend(point));
         }

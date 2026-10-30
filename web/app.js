@@ -19,6 +19,10 @@ const state = {
   joinId: null,
   joinInfo: null,
   joined: false,
+  searchQuery: '',
+  searchResults: [],
+  searchError: '',
+  searching: false,
   pinMode: 'passenger',
   saving: false,
   showPhone: false,
@@ -180,19 +184,99 @@ function driverMarkup() {
   return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/'><span class='brand-mark'>M</span><span><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot orange'></i>다음 하차</span><span class='legend-item'><i class='legend-dot'></i>등록 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div><span class='status-pill'>${status}</span></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
 }
 
+function photonPlaceParts(feature) {
+  const props = feature?.properties || {};
+  const title = String(props.name || props.street || props.city || '검색 위치');
+  const context = [props.district, props.city, props.state, props.country]
+    .filter(value => value && String(value) !== title)
+    .map(String)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .slice(0, 2);
+  return { title, context: context.join(' · '), label: [title, ...context].join(', ') };
+}
+
+function renderPlaceSearchResults() {
+  const container = byId('place-results');
+  const button = byId('search-place-button');
+  if (!container) return;
+  if (button) button.disabled = state.searching;
+  const results = state.searchResults.map((feature, index) => {
+    const place = photonPlaceParts(feature);
+    return `<button type="button" class="place-result" role="option" data-action="select-place" data-index="${index}"><span>${esc(place.title)}</span>${place.context ? `<small>${esc(place.context)}</small>` : ''}</button>`;
+  }).join('');
+  const message = state.searching ? '<div class="place-search-message">검색 중…</div>' : state.searchError ? `<div class="place-search-message">${esc(state.searchError)}</div>` : '';
+  container.innerHTML = results || message;
+  container.hidden = !results && !message;
+}
+
+async function searchPlaces() {
+  const input = byId('place-search');
+  const query = (input?.value || state.searchQuery).trim();
+  state.searchQuery = query;
+  state.searchResults = [];
+  state.searchError = '';
+  if (query.length < 2) {
+    state.searchError = '두 글자 이상 입력해 주세요.';
+    renderPlaceSearchResults();
+    input?.focus();
+    return;
+  }
+  state.searching = true;
+  renderPlaceSearchResults();
+  try {
+    const result = await api('/api/geocode?q=' + encodeURIComponent(query));
+    const features = Array.isArray(result.features) ? result.features : [];
+    const needle = query.toLocaleLowerCase('ko-KR').replace(/\s+/g, ' ');
+    const score = feature => {
+      const name = String(feature?.properties?.name || '').toLocaleLowerCase('ko-KR').replace(/\s+/g, ' ');
+      return name === needle ? 0 : name.includes(needle) ? 1 : needle.includes(name) ? 2 : 3;
+    };
+    state.searchResults = features.sort((a, b) => score(a) - score(b));
+    if (!state.searchResults.length) state.searchError = '검색 결과가 없습니다.';
+  } catch (error) {
+    state.searchError = error.message;
+  } finally {
+    state.searching = false;
+    renderPlaceSearchResults();
+  }
+}
+
+function selectSearchResult(index) {
+  const feature = state.searchResults[index];
+  const coordinates = feature?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    state.searchError = '이 장소의 위치를 사용할 수 없습니다.';
+    renderPlaceSearchResults();
+    return;
+  }
+  const [lon, lat] = coordinates.map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    state.searchError = '이 장소의 위치를 사용할 수 없습니다.';
+    renderPlaceSearchResults();
+    return;
+  }
+  const place = photonPlaceParts(feature);
+  state.pin = { lat: +lat.toFixed(6), lon: +lon.toFixed(6), label: place.label };
+  state.searchQuery = place.title;
+  state.searchResults = [];
+  state.searchError = '';
+  render();
+}
+
 function joinMarkup() {
   document.body.classList.add('passenger-body');
   const error = state.joinError || '';
   const joined = state.joined;
-  const mapName = state.mapProvider === 'naver' ? '네이버 지도' : 'OpenStreetMap';
-  const routePrivacy = state.routingProvider === 'naver' ? '하차 좌표가 이 서버와 네이버 Directions로 전송되어 실시간 교통을 반영한 실제 도로 경로를 계산합니다.' : '하차 좌표가 이 서버와 공개 OSRM 경로 서버로 전송되어 실제 도로 경로를 계산합니다.';
-  const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a><span class="phone-badge">앱 설치 없이 참여</span></header>'
-    + '<section class="passenger-heading"><div class="eyebrow">동승자 참여 · ' + shortId(state.joinId) + '</div><h1>' + (joined ? '위치 등록이 완료됐어요.' : '내릴 곳을 직접<br>핀으로 알려주세요.') + '</h1><p>' + (joined ? '운전자 화면에서 확인할 수 있습니다. 이 탭을 닫아도 괜찮아요.' : '별명과 하차 위치만 등록하면 됩니다. 회원가입은 필요하지 않아요.') + '</p></section>';
-  if (!state.joinInfo) return heading + '<div class="loading-card">초대 링크를 확인하고 있어요…</div><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
-  if (joined) return heading + '<section class="phone-card passenger-result"><div class="success-mark">✓</div><h2>등록 완료 · ' + esc(state.joinedName) + '</h2><p>운전자 화면에서 위치를 확인합니다.<br>위치 수정은 시연 범위에 포함되지 않습니다.</p></section><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
-  return heading + '<form id="passenger-form"><section class="phone-card"><h2>어떤 이름으로 표시할까요?</h2><div class="phone-field"><label for="display-name">별명 · 1~20자</label><input id="display-name" name="displayName" maxlength="20" placeholder="예: 민수" autocomplete="nickname" required></div><div class="phone-map-top"><span>실제 지도에서 누르거나 핀을 끌어 하차 위치를 선택해요</span><span>⌖ ' + mapName + '</span></div><div id="pin-map" class="pin-map" role="application" aria-label="' + mapName + ' 도로 지도. 눌러서 하차 위치 선택" tabindex="0"></div>'
-    + '<div class="coord-readout"><span>위도 <strong id="read-lat">' + state.pin.lat.toFixed(5) + '</strong></span><span>경도 <strong id="read-lon">' + state.pin.lon.toFixed(5) + '</strong></span></div>'
-      + '<div class="coord-inputs"><div class="phone-field"><label for="coord-lat">위도 입력</label><input id="coord-lat" type="number" min="-90" max="90" step="0.000001" value="' + state.pin.lat.toFixed(6) + '" aria-label="위도"></div><div class="phone-field"><label for="coord-lon">경도 입력</label><input id="coord-lon" type="number" min="-180" max="180" step="0.000001" value="' + state.pin.lon.toFixed(6) + '" aria-label="경도"></div></div><div class="phone-field" style="margin-top:13px"><label for="place-label">위치 이름 · 선택</label><input id="place-label" name="label" maxlength="80" value="' + esc(state.pin.label) + '" placeholder="시연 지점"></div><div class="privacy-note"><span>ⓘ</span><span>' + routePrivacy + ' 시연용 좌표를 사용하세요. 실시간 교통 정보 외에 안전한 정차 여부는 보장하지 않아요.</span></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>위치 등록</button></div></form><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
+  const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a></header>'
+    + '<section class="passenger-heading"><h1>' + (joined ? '등록 완료' : '목적지 입력') + '</h1></section>';
+  if (!state.joinInfo) return heading + '<div class="loading-card">초대 확인 중…</div></main>';
+  if (joined) return heading + '<section class="phone-card passenger-result"><div class="success-mark">✓</div><h2>' + esc(state.joinedName) + '</h2><p>목적지를 등록했어요.</p></section></main>';
+  const searchResults = state.searchResults.map((feature, index) => {
+    const place = photonPlaceParts(feature);
+    return '<button type="button" class="place-result" role="option" data-action="select-place" data-index="' + index + '"><span>' + esc(place.title) + '</span>' + (place.context ? '<small>' + esc(place.context) + '</small>' : '') + '</button>';
+  }).join('');
+  const searchMessage = state.searching ? '검색 중…' : state.searchError;
+  return heading + '<form id="passenger-form"><section class="phone-card destination-card"><input id="display-name" name="displayName" maxlength="20" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required><div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>목적지 등록</button></div></form></main>';
 }
 
 function render() {
@@ -350,6 +434,8 @@ async function saveSettings() {
 async function handleAction(button) {
   const action = button.dataset.action;
   try {
+    if (action === 'search-place') return await searchPlaces();
+    if (action === 'select-place') return selectSearchResult(Number(button.dataset.index));
     if (action === 'new') return await newSession(false);
     if (action === 'demo') return await newSession(true);
     if (action === 'park') {
@@ -465,31 +551,8 @@ function updatePassengerPoint(point) {
   state.pin = {
     lat: +Number(point.lat).toFixed(6),
     lon: +Number(point.lon).toFixed(6),
-    label: (byId('place-label')?.value || '').trim() || state.pin.label || '시연 위치',
+    label: String(point.label || '지도에서 선택한 위치'),
   };
-  if (byId('read-lat')) byId('read-lat').textContent = state.pin.lat.toFixed(5);
-  if (byId('read-lon')) byId('read-lon').textContent = state.pin.lon.toFixed(5);
-  if (byId('coord-lat')) byId('coord-lat').value = state.pin.lat.toFixed(6);
-  if (byId('coord-lon')) byId('coord-lon').value = state.pin.lon.toFixed(6);
-  const label = byId('place-label');
-  if (label && !label.value) label.value = state.pin.label;
-}
-
-function syncCoordinatesToMap() {
-  const latInput = byId('coord-lat');
-  const lonInput = byId('coord-lon');
-  const error = byId('phone-error');
-  if (!latInput || !lonInput || !latInput.value || !lonInput.value) return false;
-  const lat = Number(latInput.value);
-  const lon = Number(lonInput.value);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    if (error) error.textContent = '위도는 -90~90, 경도는 -180~180 범위로 입력해 주세요.';
-    return false;
-  }
-  updatePassengerPoint({ lat, lon });
-  passengerMapController?.setPoint(state.pin, false);
-  if (error) error.textContent = '';
-  return true;
 }
 
 async function bindPassengerMap() {
@@ -527,7 +590,7 @@ async function initializePassenger() {
     state.joinInfo = { state: 'ERROR', remaining: 0 };
     render();
     const content = byId('app');
-    if (content) content.innerHTML = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a><span class="phone-badge">초대 확인 필요</span></header><section class="passenger-heading"><div class="eyebrow">동승자 참여</div><h1>초대 링크를<br>확인할 수 없어요.</h1><p>' + esc(error.message) + '</p></section><div class="phone-card privacy-note">차량 화면의 새 QR을 다시 스캔해 주세요. 만료된 링크나 이미 마감된 이동에는 참여할 수 없습니다.</div></main>';
+    if (content) content.innerHTML = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><h1>초대 링크를 확인할 수 없어요.</h1><p>' + esc(error.message) + '</p></section></main>';
     return;
   }
   render();
@@ -537,10 +600,9 @@ async function submitPassenger(event) {
   event.preventDefault();
   const form = event.target;
   const name = form.elements.displayName.value.trim();
-  const label = form.elements.label.value.trim() || '시연 위치';
   const errorNode = byId('phone-error');
   if (!name || name.length > 20) { if (errorNode) errorNode.textContent = '별명은 1~20자로 입력해 주세요.'; return; }
-  state.pin.label = label;
+  state.pin.label = state.pin.label || '선택한 위치';
   state.saving = true;
   const button = form.querySelector('.phone-submit');
   button.disabled = true;
@@ -582,7 +644,19 @@ app.addEventListener('change', event => {
 });
 
 app.addEventListener('input', event => {
-  if (event.target.id === 'coord-lat' || event.target.id === 'coord-lon') syncCoordinatesToMap();
+  if (event.target.id === 'place-search') {
+    state.searchQuery = event.target.value;
+    state.searchResults = [];
+    state.searchError = '';
+    renderPlaceSearchResults();
+  }
+});
+
+app.addEventListener('keydown', event => {
+  if (event.target.id === 'place-search' && event.key === 'Enter') {
+    event.preventDefault();
+    void searchPlaces();
+  }
 });
 
 app.addEventListener('submit', event => {

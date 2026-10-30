@@ -19,7 +19,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.error import URLError
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
+from urllib.request import Request, urlopen
 
 from domain import RouteError, plan_routes, validate_point, utc_now, evaluate_route
 from routing import (
@@ -66,6 +68,12 @@ JOIN_RATE_WINDOW_SECONDS = 60
 MAX_JOIN_RATE_BUCKETS = 4096
 _join_rate_lock = threading.Lock()
 _join_rate_buckets: OrderedDict[str, deque[float]] = OrderedDict()
+GEOCODE_CACHE_TTL_SECONDS = 6 * 60 * 60
+GEOCODE_MIN_INTERVAL_SECONDS = 1.0
+MAX_GEOCODE_CACHE_ITEMS = 256
+_geocode_lock = threading.Lock()
+_geocode_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_geocode_last_request = 0.0
 
 FIXTURE = {
     "startPoint": {"lat": 37.525, "lon": 127.000, "label": "시연 출발지"},
@@ -89,6 +97,50 @@ def _hash(value: str) -> str:
 
 def _constant_time_hash_equal(candidate: str, stored_hash: str) -> bool:
     return hmac.compare_digest(_hash(candidate), stored_hash)
+
+
+def _photon_search(query: str) -> dict:
+    global _geocode_last_request
+    normalized = " ".join(query.split())
+    cache_key = normalized.casefold()
+    with _geocode_lock:
+        now = time.monotonic()
+        cached = _geocode_cache.get(cache_key)
+        if cached and now - cached[0] < GEOCODE_CACHE_TTL_SECONDS:
+            _geocode_cache.move_to_end(cache_key)
+            return cached[1]
+        if cached:
+            del _geocode_cache[cache_key]
+
+        wait = GEOCODE_MIN_INTERVAL_SECONDS - (now - _geocode_last_request)
+        if wait > 0:
+            time.sleep(wait)
+        _geocode_last_request = time.monotonic()
+        url = "https://photon.komoot.io/api/?" + urlencode({
+            "q": normalized,
+            "limit": 6,
+            "lat": 37.525,
+            "lon": 127.0,
+            "zoom": 6,
+        })
+        request = Request(url, headers={
+            "Accept": "application/geo+json, application/json",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "User-Agent": "MOAGIL-Prototype/1.0 (OpenStreetMap destination search)",
+        })
+        try:
+            with urlopen(request, timeout=8) as response:
+                payload = json.load(response)
+        except (OSError, TimeoutError, URLError, json.JSONDecodeError) as exc:
+            raise ApiError(502, "GEOCODER_UNAVAILABLE", "장소 검색을 불러오지 못했어요. 잠시 후 다시 검색해 주세요.") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+            raise ApiError(502, "GEOCODER_INVALID_RESPONSE", "검색 결과를 읽지 못했어요. 다시 검색해 주세요.")
+        result = {"features": payload["features"][:6]}
+        _geocode_cache[cache_key] = (time.monotonic(), result)
+        _geocode_cache.move_to_end(cache_key)
+        while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
+            _geocode_cache.popitem(last=False)
+        return result
 
 
 def _connect() -> sqlite3.Connection:
@@ -311,6 +363,13 @@ class Handler(BaseHTTPRequestHandler):
                     "mapProvider": "naver" if map_client_id else "osm",
                     "naverMapClientId": map_client_id,
                 })
+            if path == "/api/geocode":
+                query = parse_qs(urlsplit(self.path).query).get("q", [""])[0].strip()
+                if len(query) < 2:
+                    raise ApiError(400, "QUERY_TOO_SHORT", "장소를 두 글자 이상 입력해 주세요.")
+                if len(query) > 80:
+                    raise ApiError(400, "QUERY_TOO_LONG", "검색어는 80자 이내로 입력해 주세요.")
+                return self._send_json(200, _photon_search(query))
             if path.startswith("/api/sessions/"):
                 parts = path.split("/")
                 if len(parts) != 4:

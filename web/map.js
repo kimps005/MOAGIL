@@ -57,7 +57,7 @@
       const route = geometry.map(pair => [Number(pair[1]), Number(pair[0])]).filter(pair => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
       if (route.length > 1) {
         L.polyline(route, { color: '#ffffff', weight: 9, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }).addTo(map);
-        L.polyline(route, { color: '#138f85', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
+        L.polyline(route, { color: '#647cf2', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(map);
         bounds.push(...route);
       }
     }
