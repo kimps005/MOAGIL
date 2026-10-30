@@ -50,7 +50,7 @@ $env:MOAGIL_PUBLIC_BASE_URL = 'http://192.168.0.10:8080' # ipconfig에서 확인
 | 안전 표시 | 정차(시연) 확인 전 운전자 변경·계산·안내·하차 동작 차단 |
 | 모의 안내 복구 | 성공/실패 재현, 결과 미확인 시 하차·종료 차단, 다시 요청과 종료 확인 |
 | P1 실제 연동 | 미구현. 네이버 Directions 5와 Pleos 계정/인증/SDK를 검증하지 않음 |
-| Android APK | `vehicle-app/`에 Compose 및 Gradle mockDebug 소스 제공. 실제 SDK 설치·라이선스 상태와 빌드 결과는 [`docs/validation.md`](docs/validation.md) 참고 |
+| Android APK | `vehicle-app/`의 Compose mockDebug 소스와 [빌드된 디버그 APK](apk/MOAGIL-mock-debug.apk). Pleos Connect 에뮬레이터 설치·실행 결과는 [`docs/validation.md`](docs/validation.md) 참고 |
 
 ### 모의 기능 안내
 

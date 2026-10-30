@@ -190,7 +190,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun disconnectLocal() {
         pollJob?.cancel()
         vault.clear()
-        navigation.close()
+        viewModelScope.launch { navigation.close() }
         _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
     }
 

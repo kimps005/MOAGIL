@@ -15,7 +15,10 @@
 | Browser E2E | Node.js 24.22.1 / Playwright 1.62.1 + Chrome, `pnpm test:e2e` | PASS · 별도 모바일 브라우저 컨텍스트에서 별명/핀 등록, 동기화, 좌표 검증, 초대 권한/정보 경계, idempotency, 동시 참가 5건 중 정확히 4건 수락, 5번째 거절, 409, 앱 재접속 후 정차 해제, 24→6 순열, 수동 순서, 안내 실패 시 하차 차단/재시도, 단계별 하차, 종료 확인/초대 폐쇄 |
 | 시연 영상 | `node demo/run-demo.cjs --record` | PASS · `demo/video/MOAGIL-demo.webm`, QR/토큰 가림, 안내 실패·재시도, 종료 확인 장면 |
 | Android 빌드 도구 | 공식 SHA-256을 확인한 JDK 17 / Gradle 8.7, Gradle Wrapper 생성 | PASS |
-| Android dependency resolution | `:app:dependencies --configuration mockDebugCompileClasspath --no-daemon` | PASS · Compose/AndroidX/OkHttp/ZXing 버전 해석 성공 |
+| Android SDK | Android Studio SDK에 API 34 / Build Tools 34.0.0 설치 | PASS · 기존 SDK 라이선스 승인 기록을 사용해 Gradle이 필요한 패키지를 설치 |
+| Android 단위 테스트 및 빌드 | `vehicle-app`: `.\gradlew.bat testMockDebugUnitTest assembleMockDebug --no-daemon` | PASS · Kotlin 컴파일 및 APK 생성, mock 내비 1개 단위 테스트 통과 |
+| Pleos Connect 에뮬레이터 | ADB `emulator-5554` · 앱 설치/실행, 기본 주소 `10.0.2.2:8080` | PASS · 서버 연결, 시연 승객 4명 동기화, 24개 순서 계산, 안내 실패 차단·재시도, 4단계 하차, 종료 확인 및 서버 COMPLETED 상태. 치명 예외 없음 |
+| APK 산출물 | `apk/MOAGIL-mock-debug.apk` · 24,347,967 bytes | PASS · 에뮬레이터 설치 및 실행 확인 |
 
 ## 환경상 미검증
 
@@ -23,13 +26,13 @@
 |---|---|---|
 | 별도 휴대폰에서 QR 스캔 및 LAN 동기화 (AC02) | 미검증 | 실제 스마트폰이 연결되지 않았습니다. 같은 Wi-Fi에서 QR 스캔과 5초 이내 동기화를 확인해야 합니다. |
 | API/browser 통합 (AC03/06/09/10) | PASS · 로컬 Chrome E2E | 모바일 등록/동기화, 인증, 중복 재시도, 4명 제한, version 충돌, 경로 순서/수동 조정, 단계별 mock 안내를 확인했습니다. 실제 휴대폰 재접속 및 LAN 동작은 포함하지 않습니다. |
-| Android mock debug 빌드 및 설치 (AC01/07/08/12) | 차단 | `:app:compileMockDebugKotlin` 실행 시 SDK location을 찾을 수 없어 중단됐습니다. Android SDK/API 34 및 Build Tools 34.0.0, Emulator/ADB가 없습니다. SDK 패키지를 설치하기 전에 Android SDK 라이선스 동의가 필요하며, 아직 동의하지 않았습니다. APK와 Kotlin 컴파일 결과는 생성되지 않았습니다. |
-| 네이버 Directions 5 / Pleos SDK (P1) | BLOCKED / 미구현 | 네이버 인증 정보, Pleos SDK 접근 권한 및 공식 에뮬레이터가 제공되지 않았습니다. 실제 SDK 메서드나 결과 이벤트를 추정하지 않았습니다. |
+| 깨끗한 체크아웃 재현 (AC01 일부) | 미검증 | 개발 환경의 SDK/의존성 캐시가 준비된 상태에서 빌드했습니다. 새 PC나 캐시가 없는 체크아웃에서의 첫 설치·빌드는 별도로 반복하지 않았습니다. |
+| 네이버 Directions 5 / Pleos SDK 실제 연동 (P1) | BLOCKED / 미구현 | Pleos Connect 에뮬레이터에서 MOAGIL mock 앱은 실행했습니다. 네이버 인증 정보와 Pleos SDK 라이브러리/API 접근 권한이 없어 실제 SDK 초기화·목적지 요청·결과 콜백은 시험하지 않았습니다. |
 
 ## 범위 판단
 
-- 브라우저 UI, SQLite 서버, 토큰 해시, idempotency 및 순열 계산은 P0 mock 경로로 구현했습니다.
-- Kotlin/Compose 차량 앱과 Gradle 빌드 설정은 `vehicle-app/`에 작성했고 Wrapper/JDK는 준비했습니다. Android SDK 이용 약관과 API 패키지 설치가 없어 네이티브 소스는 컴파일되지 않았고 APK도 없습니다. 따라서 PRD의 P0 전체 및 AC01/AC07/AC12는 완료로 판정하지 않습니다.
+- 브라우저 UI, SQLite 서버, 토큰 해시, idempotency 및 순열 계산은 P0 mock 경로로 구현하고 검증했습니다.
+- Kotlin/Compose 차량 앱을 API 34로 빌드해 mockDebug APK를 만들고 사용자가 제공한 Pleos Connect 에뮬레이터에 설치·실행했습니다. 에뮬레이터에서 서버 연결부터 이동 종료까지 mock 흐름을 확인했습니다. 실제 휴대폰 AC02와 새 체크아웃 빌드는 미검증이므로 PRD의 P0 전체 완료로 판정하지 않습니다.
 - 이 저장소는 PRD의 권장 FastAPI/SQLAlchemy 및 React/Vite 대신 Python 표준 라이브러리 HTTP/SQLite와 정적 HTML/CSS/JavaScript를 사용합니다. 키 없는 mock 흐름은 E2E로 검증했으며, 원래 기술 스택과 빈 환경 Android APK 빌드 조건은 충족하지 못했습니다.
 - 브라우저 검증 런타임은 Node.js 24.22.1 / pnpm 11.25.0입니다. PRD에 명시된 Node.js 20 LTS 환경에서의 별도 재검증은 아직 하지 않았습니다.
 - 영상은 승인된 브라우저 기반 시연에서 생성하며, 휴대폰 패널은 시연용 가상 브라우저입니다. 촬영 전 QR 토큰이 가려져 있는지 확인합니다.
