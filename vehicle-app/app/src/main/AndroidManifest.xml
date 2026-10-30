@@ -6,6 +6,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MOAGIL"
         android:usesCleartextTraffic="false">
+        <meta-data
+            android:name="com.naver.maps.map.NCP_KEY_ID"
+            android:value="${naverMapClientId}" />
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize"

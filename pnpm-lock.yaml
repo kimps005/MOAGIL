@@ -5,17 +5,25 @@ settings:
   excludeLinksFromLockfile: false
 
 importers:
+
   .:
     devDependencies:
+      leaflet:
+        specifier: 1.9.4
+        version: 1.9.4
       playwright:
         specifier: 1.62.1
         version: 1.62.1
 
 packages:
+
   fsevents@2.3.2:
     resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  leaflet@1.9.4:
+    resolution: {integrity: sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==}
 
   playwright-core@1.62.1:
     resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
@@ -28,8 +36,11 @@ packages:
     hasBin: true
 
 snapshots:
+
   fsevents@2.3.2:
     optional: true
+
+  leaflet@1.9.4: {}
 
   playwright-core@1.62.1: {}
 

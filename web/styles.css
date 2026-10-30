@@ -71,8 +71,10 @@ h1 { margin: 10px 0 9px; font-size: clamp(28px, 3.1vw, 44px); line-height: 1.14;
 .map-card { min-height: 370px; position: relative; background: #e5ece7; color: #17343b; }
 .map-topline { position: absolute; z-index: 2; left: 18px; right: 18px; top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .map-label { border: 1px solid rgba(26,66,68,.13); border-radius: 999px; padding: 7px 10px; color: #27484d; background: rgba(247,251,248,.88); font-size: 10px; font-weight: 800; }
-.map-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.map-legend { position: absolute; bottom: 14px; left: 15px; right: 15px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: #4e6666; font-size: 9px; }
+.driver-map { position: absolute; inset: 0; width: 100%; height: 100%; background: #e5ece7; }
+.map-error { display: grid; place-content: center; height: 100%; padding: 24px; color: #395b61; text-align: center; line-height: 1.8; font-size: 12px; font-weight: 700; }
+.map-legend { position: absolute; z-index: 800; bottom: 74px; left: 15px; right: 15px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: #344f50; font-size: 9px; pointer-events: none; }
+.map-legend .legend-item { border: 1px solid rgba(26,66,68,.13); border-radius: 999px; padding: 6px 8px; background: rgba(247,251,248,.88); }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: #229c8e; }
 .legend-dot.orange { background: #f28b58; }
@@ -139,7 +141,13 @@ body.passenger-body { color-scheme: light; color: #132c34; background: #f1f5f3; 
 .phone-field label { color: #698084; font-size: 10px; font-weight: 750; }
 .phone-field input { width: 100%; padding: 12px; border-radius: 11px; border: 1px solid #dfe9e6; outline: none; color: #1d373b; background: #fbfdfc; font-size: 13px; }
 .phone-field input:focus { border-color: #54b9a8; box-shadow: 0 0 0 3px rgba(84,185,168,.10); }
-.pin-map { width: 100%; height: 290px; display: block; border-radius: 13px; border: 1px solid #dbe7e2; background: #e7efe9; touch-action: none; }
+.pin-map { width: 100%; height: 290px; display: block; border-radius: 13px; border: 1px solid #dbe7e2; background: #e7efe9; overflow: hidden; }
+.moagil-pin-wrap { background: none; border: 0; }
+.moagil-pin { width: 32px; height: 32px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); color: #fff; background: #229b8d; box-shadow: 0 2px 8px rgba(17,42,46,.28); font-size: 10px; font-weight: 900; }
+.moagil-pin b { transform: rotate(45deg); }
+.moagil-pin-start { background: #38546b; }
+.moagil-pin-next { background: #f28b58; }
+.moagil-pin-stop { background: #229b8d; }
 .phone-map-top { display: flex; justify-content: space-between; color: #6a8181; font-size: 9px; margin: 0 1px 8px; }
 .coord-readout { display: flex; gap: 8px; color: #68807f; font-size: 9px; margin: 9px 1px 0; }
 .coord-readout strong { color: #214c4c; font-weight: 700; }
@@ -188,6 +196,8 @@ body.passenger-body { color-scheme: light; color: #132c34; background: #f1f5f3; 
   .qr-card .qr-masked { width: 90px; height: 90px; }
   .card-pad { padding: 17px; }
   .map-card { min-height: 310px; }
+  .map-legend { bottom: 70px; left: 8px; right: 8px; gap: 5px; }
+  .map-legend .legend-item { padding: 5px 6px; font-size: 8px; }
   .settings { grid-template-columns: 1fr; }
   .stat-grid { gap: 7px; }
   .stat-box { padding: 11px 10px; }

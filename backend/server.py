@@ -22,8 +22,41 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from domain import RouteError, plan_routes, validate_point, utc_now, evaluate_route
+from routing import (
+    OSRM_ATTRIBUTION,
+    OSRM_NOTE,
+    OSRM_PROVIDER_VERSION,
+    NAVER_ATTRIBUTION,
+    NAVER_NOTE,
+    NAVER_PROVIDER_VERSION,
+    RoutingError,
+    fetch_naver_route,
+    fetch_route,
+    matrix_evaluator,
+    naver_route_evaluator,
+    routing_provider,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_env_file() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name, value = name.strip(), value.strip()
+        if name and name.replace("_", "").isalnum() and name[0].isalpha() and name not in os.environ:
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            os.environ[name] = value
+
+
+_load_env_file()
 WEB_ROOT = ROOT / "web"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DB_PATH = Path(os.environ.get("MOAGIL_DB", DATA_DIR / "moagil.db"))
@@ -178,12 +211,12 @@ class Handler(BaseHTTPRequestHandler):
         # Request paths can contain invitation tokens. Keep access logs free of them.
         return
 
-    def _headers(self, content_type: str):
+    def _headers(self, content_type: str, *, static_page: bool = False):
         self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin" if static_page else "no-referrer")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://oapi.map.naver.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 
     def _send_json(self, status: int, payload: dict, extra_headers: dict[str, str] | None = None):
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -270,7 +303,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path = self._path()
             if path == "/api/health":
-                return self._send_json(200, {"status": "ok", "mode": "mock"})
+                return self._send_json(200, {"status": "ok", "mode": routing_provider()})
+            if path == "/api/config":
+                map_client_id = os.environ.get("MOAGIL_NAVER_CLIENT_ID", "").strip()
+                return self._send_json(200, {
+                    "routingProvider": routing_provider(),
+                    "mapProvider": "naver" if map_client_id else "osm",
+                    "naverMapClientId": map_client_id,
+                })
             if path.startswith("/api/sessions/"):
                 parts = path.split("/")
                 if len(parts) != 4:
@@ -340,6 +380,8 @@ class Handler(BaseHTTPRequestHandler):
             self._error(error)
         except RouteError as error:
             self._error(ApiError(422, "INVALID_ROUTE", str(error)))
+        except RoutingError as error:
+            self._error(ApiError(503, "ROUTING_UNAVAILABLE", str(error)))
         except BrokenPipeError:
             return
         except Exception:
@@ -439,14 +481,56 @@ class Handler(BaseHTTPRequestHandler):
 
     def _plan(self, session_id: str, body: dict):
         with _db_connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             row = self._driver(db, session_id)
-            self._check_version(row, self._expected_version(body))
+            expected_version = self._expected_version(body)
+            self._check_version(row, expected_version)
+            start = _json(row["start_point"])
             passengers = self._passengers(db, session_id)
             final = _json(row["final_point"])
-            results = plan_routes(_json(row["start_point"]), passengers, final, row["priority_id"])
-            chosen = results[0]
-            snapshot = {**chosen, "evaluatedCount": len(results), "basisVersion": row["version"], "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"), "providerVersion": "mock-haversine-v1", "note": "시연용 직선거리 추정 · 실제 도로/교통 아님"}
+            priority_id = row["priority_id"]
+            basis_version = row["version"]
+
+        provider = routing_provider()
+        if provider == "osrm":
+            matrix_points = [start, *[person["point"] for person in passengers]]
+            if final:
+                matrix_points.append(final)
+            evaluator = matrix_evaluator(matrix_points)
+        elif provider == "naver":
+            evaluator = naver_route_evaluator()
+        else:
+            evaluator = evaluate_route
+        results = plan_routes(
+            start,
+            passengers,
+            final,
+            priority_id,
+            evaluator,
+            max_workers=2 if provider == "naver" else 1,
+            timeout_seconds=120 if provider == "naver" else None,
+        )
+        chosen = results[0]
+        if provider == "osrm":
+            by_id = {person["id"]: person for person in passengers}
+            route_points = [start, *[by_id[item]["point"] for item in chosen["order"]]]
+            if final:
+                route_points.append(final)
+            chosen = {**chosen, **fetch_route(route_points)}
+        note = NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
+        provider_version = NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+        snapshot = {
+            **chosen,
+            "evaluatedCount": len(results),
+            "basisVersion": basis_version,
+            "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "providerVersion": provider_version,
+            "note": note,
+            "attribution": NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+        }
+        with _db_connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._driver(db, session_id)
+            self._check_version(row, expected_version)
             db.execute("UPDATE sessions SET state='PLANNED',version=version+1,selected_order=?,route_snapshot=? WHERE id=?", (json.dumps(chosen["order"]), json.dumps(snapshot, ensure_ascii=False), session_id))
             updated = _session_row(db, session_id)
             return self._send_json(200, _snapshot(db, updated))
@@ -456,9 +540,9 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(order, list):
             raise ApiError(422, "INVALID_ORDER", "순서를 다시 확인해 주세요")
         with _db_connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             row = self._driver(db, session_id)
-            self._check_version(row, self._expected_version(body))
+            expected_version = self._expected_version(body)
+            self._check_version(row, expected_version)
             passengers = self._passengers(db, session_id)
             expected = {p["id"] for p in passengers}
             if len(order) != len(passengers) or set(order) != expected:
@@ -470,10 +554,27 @@ class Handler(BaseHTTPRequestHandler):
             final = _json(row["final_point"])
             if final:
                 points.append(final)
-            estimate = evaluate_route(points)
             old = _json(row["route_snapshot"], {})
-            snapshot = {**estimate, "order": order, "evaluatedCount": old.get("evaluatedCount", 1), "basisVersion": row["version"], "staleAt": estimate["fetchedAt"], "providerVersion": "mock-haversine-v1", "note": "시연용 직선거리 추정 · 실제 도로/교통 아님"}
-            snapshot["staleAt"] = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z")
+            basis_version = row["version"]
+
+        provider = routing_provider()
+        estimate = fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
+        note = NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
+        provider_version = NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+        snapshot = {
+            **estimate,
+            "order": order,
+            "evaluatedCount": old.get("evaluatedCount", 1),
+            "basisVersion": basis_version,
+            "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "providerVersion": provider_version,
+            "note": note,
+            "attribution": NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+        }
+        with _db_connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._driver(db, session_id)
+            self._check_version(row, expected_version)
             db.execute("UPDATE sessions SET state='PLANNED',version=version+1,selected_order=?,route_snapshot=? WHERE id=?", (json.dumps(order), json.dumps(snapshot, ensure_ascii=False), session_id))
             return self._send_json(200, _snapshot(db, _session_row(db, session_id)))
 
@@ -581,10 +682,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
         if not target.is_file():
             raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
-        content_type = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}.get(target.suffix, "application/octet-stream")
+        content_type = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}.get(target.suffix, "application/octet-stream")
         data = target.read_bytes()
         self.send_response(200)
-        self._headers(content_type)
+        self._headers(content_type, static_page=target.suffix == ".html")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -592,11 +693,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     _init_db()
+    provider = routing_provider()
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer((os.environ.get("HOST", "0.0.0.0"), port), Handler)
     print("MOAGIL 시연 서버가 준비되었습니다.")
     print("차량 화면: http://localhost:" + str(port))
-    print("휴대폰은 차량과 같은 Wi-Fi에서 차량 화면의 초대 링크를 사용하세요.")
+    print("휴대폰은 QR 초대 링크로 인터넷을 통해 접속할 수 있습니다.")
+    print("경로 계산: " + ("네이버 Directions 5 (실시간 교통)" if provider == "naver" else "OSM 실제 도로망 (실시간 교통 없음)" if provider == "osrm" else "모의 직선거리"))
     print("종료: Ctrl+C")
     try:
         server.serve_forever()

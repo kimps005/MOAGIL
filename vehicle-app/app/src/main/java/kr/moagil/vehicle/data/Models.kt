@@ -13,6 +13,7 @@ data class RouteSnapshot(
     val dataSource: String,
     val fetchedAt: String,
     val note: String,
+    val geometry: List<Point>,
 )
 data class DriverSession(
     val sessionId: String,
@@ -52,6 +53,7 @@ object JsonModels {
         val selected = json.optJSONArray("selectedOrder") ?: JSONArray()
         val routeJson = json.optJSONObject("routeSnapshot")
         val route = routeJson?.let {
+            val geometry = it.optJSONArray("geometry") ?: JSONArray()
             RouteSnapshot(
                 order = strings(it.optJSONArray("order") ?: JSONArray()),
                 durationMs = it.optLong("durationMs"),
@@ -60,6 +62,11 @@ object JsonModels {
                 dataSource = it.optString("dataSource", "unknown"),
                 fetchedAt = it.optString("fetchedAt", ""),
                 note = it.optString("note", "모의 경로"),
+                geometry = (0 until geometry.length()).mapNotNull { index ->
+                    geometry.optJSONArray(index)?.takeIf { coordinates -> coordinates.length() >= 2 }?.let { coordinates ->
+                        Point(coordinates.optDouble(1), coordinates.optDouble(0), "경로")
+                    }
+                },
             )
         }
         return DriverSession(

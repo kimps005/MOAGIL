@@ -8,12 +8,13 @@
                                          ▼
 Kotlin/Compose 또는 브라우저 대체 화면 ─ driver token ─ Python stdlib HTTP server ─ SQLite
   2초 폴링 / mock guide                                     ├─ sessions / passengers
-  local SVG map + QR (브라우저)                             └─ mock route permutation engine
+  Pleos NaviHelper handoff (Pleos flavor)                   └─ OSRM / 선택형 NAVER route permutation engine
+  local SVG map + QR (브라우저)
 ```
 
 초기 PRD의 차량 화면 기술을 반영해 Kotlin/Compose `mockDebug` 앱을 추가했습니다. 서버는 Python 3.12 표준 라이브러리와 SQLite, 참가 웹 및 브라우저 대체 차량 화면은 정적 HTML/CSS/JavaScript로 구성하여 서버 실행에 외부 런타임 패키지가 필요하지 않습니다. PRD의 FastAPI/SQLAlchemy 및 React/Vite 스택은 채택하지 않았으며 구현 범위와 제한을 분리해 기록합니다.
 
-Android 차량 앱은 `vehicle-app/app`에 있으며 OkHttp로 같은 자체 API를 호출하고, Compose의 정차 게이트와 서버 version 검사를 함께 적용합니다. 운전자 token은 Android Keystore AES-GCM 키로 암호화해 앱 개인 저장소에 보관합니다. `NavigationPort`, `DrivingStatePort`는 mock 전용이며 실제 SDK, 차량 위치, 주행 상태를 조회하지 않습니다. Android mockDebug에만 HTTP cleartext를 허용하며 실서비스 설정이 아닙니다. Android SDK 라이선스 동의와 API 34 패키지 설치가 되지 않아 현재 Kotlin 소스는 컴파일되지 않았습니다.
+Android 차량 앱은 `vehicle-app/app`에 있으며 OkHttp로 같은 자체 API를 호출하고, Compose의 정차 게이트와 서버 version 검사를 함께 적용합니다. 운전자 token은 Android Keystore AES-GCM 키로 암호화해 앱 개인 저장소에 보관합니다. `mockDebug`의 `NavigationPort`는 mock 안내를 제공하고, `pleosDebug`는 공식 NaviHelper SDK를 이용해 선택한 하차 목적지 하나를 차량 내 내비에 요청합니다. Pleos 요청은 5초 이내 경로 완료/오류 콜백을 기다리며, 콜백이 없으면 하차 확인을 막습니다. Pleos 에뮬레이터에서는 내비 앱 호출은 확인했지만 네트워크 오류로 실제 경로 완료는 검증하지 못했습니다. `DrivingStatePort`와 정차 스위치는 두 변형 모두 시연 상태이며 차량 위치·차속 센서를 읽지 않습니다. Android cleartext 트래픽 허용은 debug 변형에만 있습니다. JDK 17과 SDK API 34에서 mock 단위 테스트 및 mock/Pleos APK 빌드가 성공했습니다.
 
 ## 세션 및 권한
 
@@ -37,7 +38,7 @@ COLLECTING ── plan ──> PLANNED ── start ──> ACTIVE ── all st
 
 ## 경로 계산
 
-모든 순서는 Python `itertools.permutations`로 생성합니다. 우선 승객을 지정하면 첫 번째 순서로 고정합니다. 비교 정렬은 예상 시간, 알려진 거리, 승객 ID 순서입니다. Mock provider는 Haversine 직선거리에 1.25 보정치를 곱하고 고정 시속 30km/h로 시간을 추정합니다. 통행료는 `null`이며 실제 도로·교통이나 승객 ETA는 계산하지 않습니다.
+모든 순서는 Python `itertools.permutations`로 생성합니다. 우선 승객을 지정하면 첫 번째 순서로 고정합니다. 기본 OSRM provider는 도로 거리표를 받아 순서를 평가한 다음 선택 경로의 도로 형상을 조회합니다. 선택형 NAVER Directions 5 provider는 두 요청 워커로 후보 경로 비용을 조회합니다. Mock provider는 Haversine 직선거리에 1.25 보정치를 곱하고 고정 시속 30km/h로 시간을 추정합니다. 공개 OSRM 샘플에서 4명·24개 순서의 거리표 평가와 선택 경로 조회는 한 번 측정 기준 총 3.34초였습니다. 공개 서비스는 SLA/실시간 교통을 보장하지 않습니다. 통행료는 `null`입니다.
 
 ## 사용자 안전
 

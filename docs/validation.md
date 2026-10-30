@@ -4,36 +4,31 @@
 
 ## 완료한 검사
 
-| 구분 | 실행 | 결과 |
+| 구분 | 결과 |
+|---|---|
+| Python 단위 테스트 | PASS · 번들 Python 3.12.14, 14개 테스트 |
+| 웹 JavaScript 구문 검사 | PASS · 차량 앱, Leaflet 지도, NAVER 지도 모듈 |
+| 브라우저 E2E · mock | PASS · 모바일 참가, 권한/중복/동시 정원, 24→6 순열, 순서 조정, 안내 실패/재시도, 단계별 하차, 세션 종료 |
+| 브라우저 E2E · OSRM | PASS · 실제 OpenStreetMap 도로망 기반 거리표와 선택 경로 요청 확인 |
+| NAVER Directions 어댑터 | PASS · 모의 응답으로 좌표 순서, 경유지, 시간·거리·형상 파싱 및 24개 후보 평가 확인 |
+| OSRM 4명 순서 계산 속도 | PASS · 공개 OSRM을 사용한 샘플 1회: 거리표 1.10초, 24개 순서 점수 계산 0.000초, 선택 경로 형상 2.24초, 총 3.34초 |
+| Android 단위 테스트·APK 빌드 | PASS · JDK 17, Android SDK API 34; `testMockDebugUnitTest`, `assembleMockDebug`, `assemblePleosDebug` 성공 |
+| Pleos Connect 에뮬레이터 SDK 설치 | PASS · `emulator-5554`, Pleos NaviHelper 3.0.5 빌드·설치, `NAVI_ROUTE_SEARCH` 권한이 granted 상태 |
+
+## 아직 확인되지 않은 실제 연동
+
+| 기준 | 상태 | 남은 단계 |
 |---|---|---|
-| Backend syntax | 번들 Python 3.12.14로 `py_compile backend/domain.py backend/server.py backend/tests/test_domain.py backend/tests/test_server_guards.py` | PASS |
-| Backend unit tests | `python -m unittest discover -s backend/tests -v` | PASS · 14개 (순열·좌표 9, QR 주소/요청 제한 5) |
-| Windows 시작 스크립트 | `Start-MOAGIL.ps1` · 임시 포트 8766 · `/api/health` | PASS · Python 3.12.14로 시작되고 `{"status":"ok","mode":"mock"}` 응답 확인 |
-| Browser tool install | Node.js 24.22.1 / pnpm 11.25.0 · `pnpm install --frozen-lockfile` | PASS · Playwright 1.62.1 설치, lockfile 변경 없음 |
-| Frontend syntax | `node --check web/app.js` | PASS |
-| Demo runner syntax | `node --check demo/run-demo.cjs` | PASS |
-| Browser E2E | Node.js 24.22.1 / Playwright 1.62.1 + Chrome, `pnpm test:e2e` | PASS · 별도 모바일 브라우저 컨텍스트에서 별명/핀 등록, 동기화, 좌표 검증, 초대 권한/정보 경계, idempotency, 동시 참가 5건 중 정확히 4건 수락, 5번째 거절, 409, 앱 재접속 후 정차 해제, 24→6 순열, 수동 순서, 안내 실패 시 하차 차단/재시도, 단계별 하차, 종료 확인/초대 폐쇄 |
-| 시연 영상 | `node demo/run-demo.cjs --record` | PASS · `demo/video/MOAGIL-demo.webm`, QR/토큰 가림, 안내 실패·재시도, 종료 확인 장면 |
-| Android 빌드 도구 | 공식 SHA-256을 확인한 JDK 17 / Gradle 8.7, Gradle Wrapper 생성 | PASS |
-| Android SDK | Android Studio SDK에 API 34 / Build Tools 34.0.0 설치 | PASS · 기존 SDK 라이선스 승인 기록을 사용해 Gradle이 필요한 패키지를 설치 |
-| 새 GitHub clone 재현 | commit `c87b24b` 새 clone에서 Android Gradle 명령 | PASS · 41개 task 실행, 1개 단위 테스트 통과, APK 재생성. 이 PC에 설치된 Android SDK와 Gradle dependency cache 사용 |
-| Android 단위 테스트 및 빌드 | `vehicle-app`: `.\gradlew.bat testMockDebugUnitTest assembleMockDebug --no-daemon` | PASS · Kotlin 컴파일 및 APK 생성, mock 내비 1개 단위 테스트 통과 |
-| Pleos Connect 에뮬레이터 | ADB `emulator-5554` · 앱 설치/실행, 기본 주소 `10.0.2.2:8080` | PASS · 서버 연결, 시연 승객 4명 동기화, 24개 순서 계산, 안내 실패 차단·재시도, 4단계 하차, 종료 확인 및 서버 COMPLETED 상태. 치명 예외 없음 |
-| APK 산출물 | `apk/MOAGIL-mock-debug.apk` · 24,347,967 bytes | PASS · 에뮬레이터 설치 및 실행 확인 |
+| 네이버 Web/Mobile Dynamic Map 실제 인증 | 미검증 | Naver Cloud Maps Application Client ID를 `.env`와 `vehicle-app/local.properties`에 넣은 뒤 지도 타일을 확인해야 함 |
+| 네이버 Directions 5 실제 응답·속도 | 미검증 | 서버 `.env`에 Client ID와 Client Secret을 설정하고 인증된 요청을 실행해야 함. Secret은 채팅이나 GitHub에 올리지 않음 |
+| 실제 스마트폰 QR 참가 및 동기화 | 미검증 | 휴대전화에서 외부/가정 네트워크 주소로 초대 QR을 스캔하고 위치를 등록해야 함 |
+| Pleos 내비 경로 완료 콜백 | BLOCKED · 이번 에뮬레이터에서 외부 Wi-Fi가 `noInternet`으로 표시됐고, 내비 앱이 “경로 탐색 오류 · 일시적으로 서비스를 이용할 수 없습니다”를 표시함. `requestRoute()`로 내비 앱이 열렸지만 NaviHelper의 완료/오류 콜백은 돌아오지 않아 앱에서 5초 제한시간 초과로 처리함. 실제 경로 안내 성공은 확인하지 못함. | 인터넷 연결이 검증된 Pleos 에뮬레이터에서 재시도. 좌표 핀에 빈 POI ID를 전달하는 방식도 실기기/API로 확인해야 함 |
 
-## 환경상 미검증
+## 범위와 제한
 
-| 기준 | 상태 | 이유 / 다음 확인 |
-|---|---|---|
-| 별도 휴대폰에서 QR 스캔 및 LAN 동기화 (AC02) | 미검증 | 실제 스마트폰이 연결되지 않았습니다. 같은 Wi-Fi에서 QR 스캔과 5초 이내 동기화를 확인해야 합니다. |
-| API/browser 통합 (AC03/06/09/10) | PASS · 로컬 Chrome E2E | 모바일 등록/동기화, 인증, 중복 재시도, 4명 제한, version 충돌, 경로 순서/수동 조정, 단계별 mock 안내를 확인했습니다. 실제 휴대폰 재접속 및 LAN 동작은 포함하지 않습니다. |
-| 완전히 빈 PC에서 Android 최초 설치/빌드 (AC01 일부) | 부분 확인 | GitHub 새 clone에서 빌드와 테스트는 통과했습니다. Android Studio SDK와 Gradle dependency cache가 없는 새 PC에서의 최초 다운로드까지 검증하지 않았습니다. |
-| 네이버 Directions 5 / Pleos SDK 실제 연동 (P1) | BLOCKED / 미구현 | Pleos Connect 에뮬레이터에서 MOAGIL mock 앱은 실행했습니다. 네이버 인증 정보와 Pleos SDK 라이브러리/API 접근 권한이 없어 실제 SDK 초기화·목적지 요청·결과 콜백은 시험하지 않았습니다. |
-
-## 범위 판단
-
-- 브라우저 UI, SQLite 서버, 토큰 해시, idempotency 및 순열 계산은 P0 mock 경로로 구현하고 검증했습니다.
-- Kotlin/Compose 차량 앱을 API 34로 빌드해 mockDebug APK를 만들고 사용자가 제공한 Pleos Connect 에뮬레이터에 설치·실행했습니다. 에뮬레이터에서 서버 연결부터 이동 종료까지 mock 흐름을 확인했습니다. 새 GitHub clone 빌드도 통과했습니다. 실제 휴대폰 AC02와 SDK가 없는 완전한 빈 PC에서의 최초 설치는 미검증이므로 PRD의 P0 전체 완료로 판정하지 않습니다.
-- 이 저장소는 PRD의 권장 FastAPI/SQLAlchemy 및 React/Vite 대신 Python 표준 라이브러리 HTTP/SQLite와 정적 HTML/CSS/JavaScript를 사용합니다. 키 없는 mock 흐름은 E2E로 검증했으며, 원래 기술 스택과 빈 환경 Android APK 빌드 조건은 충족하지 못했습니다.
-- 브라우저 검증 런타임은 Node.js 24.22.1 / pnpm 11.25.0입니다. PRD에 명시된 Node.js 20 LTS 환경에서의 별도 재검증은 아직 하지 않았습니다.
-- 영상은 승인된 브라우저 기반 시연에서 생성하며, 휴대폰 패널은 시연용 가상 브라우저입니다. 촬영 전 QR 토큰이 가려져 있는지 확인합니다.
+- 공모전 방향은 Pleos NaviHelper를 차량 내 경로 안내에 사용하고, 서버에서 OSRM 도로 거리표를 한 번 받아 24개 승객 순서를 계산하는 방식입니다. 현재 Pleos SDK 문서에서는 후보 경로 행렬·일괄 순위 API를 확인하지 못했습니다. NaviHelper에 후보 24개를 요청하면 내비 경로를 반복 변경하게 되므로 사용하지 않습니다.
+- OSRM 속도 3.34초는 테스트 시점의 서울 샘플 좌표 한 번 측정한 값이며, 공개 데모 서버는 SLA나 실시간 교통을 보장하지 않습니다. 따라서 5초는 성능 목표이지 모든 네트워크에서 보장되는 상한이 아닙니다. NAVER Directions는 24개 경로를 요청하며 현재 코드에서 최대 2개씩 실행합니다. 실제 계정·네트워크 측정은 하지 않았습니다.
+- Pleos 변형은 공식 `NaviHelper:3.0.5`와 `pleos.car.permission.NAVI_ROUTE_SEARCH`를 사용해 현재 하차 지점 하나씩 `requestRoute()`합니다. 완료 콜백 확인 전에 하차 완료를 허용하지 않으며, 5초 내 콜백이 없으면 재시도를 안내합니다. 현재 에뮬레이터에서는 내비 서비스가 오프라인이어서 경로 안내 성공을 확인하지 못했습니다.
+- Android 에뮬레이터의 실제 기본 위치/정차 센서는 연결하지 않았습니다. 정차 스위치는 시연값입니다. 지도 Client ID가 없으면 Android 지도에 설정 안내를 표시합니다.
+- 지도와 후보 경로는 키가 없을 때 OpenStreetMap과 OSRM을 사용합니다. OSRM은 공개 시연용이며 SLA와 실시간 교통 정보가 없습니다. NAVER Maps는 Client ID로 지도를 표시하며 Directions 5는 명시적으로 선택할 때만 후보 비용에 사용합니다.
+- 앱은 실제 차량 주행용이 아닙니다. 회전별 음성 안내, 실제 차속·정차 판정, 스마트폰 QR 외부 네트워크 검증은 완료하지 않았습니다.

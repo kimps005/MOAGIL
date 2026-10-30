@@ -1,5 +1,6 @@
 package kr.moagil.vehicle
 
+import android.graphics.Color as AndroidColor
 import android.graphics.Bitmap
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -39,8 +40,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,11 +52,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.naver.maps.geometry.LatLng
+import com.naver.maps.geometry.LatLngBounds
+import com.naver.maps.map.CameraUpdate
+import com.naver.maps.map.MapView
+import com.naver.maps.map.NaverMap
+import com.naver.maps.map.overlay.Marker
+import com.naver.maps.map.overlay.PolylineOverlay
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -173,7 +189,10 @@ private fun Header(state: DriverUiState, model: MoagilViewModel, onDisconnect: (
                 Text("차량용 시연 화면", color = Muted, fontSize = 12.sp)
             }
             Spacer(Modifier.width(18.dp))
-            Badge("모의 위치 · 모의 교통 · 모의 내비", Mint)
+            Badge(
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 안내 · 차량 상태는 시연값" else "모의 위치 · 모의 교통 · 모의 내비",
+                Mint,
+            )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Badge(if (state.connected == true) "서버 연결" else if (state.connected == false) "연결 끊김" else "연결 확인 중", if (state.connected == true) Mint else Alert)
@@ -252,6 +271,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { SafetyCard(state, model) }
+            item { RealRoadMapCard(session) }
             if (wide) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -286,6 +306,125 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                     if (!terminal && session.state != "ACTIVE") OutlinedButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RealRoadMapCard(session: DriverSession) {
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            SectionTitle("네이버 실제 도로 지도", session.route?.let { "${it.note} · ${it.dataSource}" } ?: "하차 위치와 계산된 도로 경로")
+            if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) {
+                Box(
+                    Modifier.fillMaxWidth().height(230.dp).background(PanelRaised, RoundedCornerShape(14.dp)).padding(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("네이버 Client ID를 설정하면 실제 지도가 표시됩니다.\nvehicle-app/local.properties에 naver.map.clientId를 추가해 주세요.", color = Muted, fontSize = 13.sp)
+                }
+            } else {
+                NaverRoadMapView(session, Modifier.fillMaxWidth().height(320.dp))
+            }
+            Text(
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "순서 비교는 서버의 ${session.route?.dataSource ?: "도로 경로 제공자"} 기준입니다. 선택된 목적지는 Pleos 내비로 전송하며, 차량 센서·정차 상태는 시연값입니다."
+                else "추천 경로는 실제 도로망을 따릅니다. 차량 위치·회전별 음성 안내·Pleos 내비는 연결되지 않았습니다.",
+                color = Muted,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NaverRoadMapView(session: DriverSession, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+    var naverMap by remember { mutableStateOf<NaverMap?>(null) }
+    val markers = remember { mutableStateListOf<Marker>() }
+    var routeLine by remember { mutableStateOf<PolylineOverlay?>(null) }
+
+    AndroidView(
+        factory = { viewContext ->
+            MapView(viewContext).also { view ->
+                mapView = view
+                view.onCreate(null)
+                view.getMapAsync { map -> naverMap = map }
+            }
+        },
+        modifier = modifier,
+    )
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val view = mapView
+        var destroyed = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> view?.onStart()
+                Lifecycle.Event.ON_RESUME -> view?.onResume()
+                Lifecycle.Event.ON_PAUSE -> view?.onPause()
+                Lifecycle.Event.ON_STOP -> view?.onStop()
+                Lifecycle.Event.ON_DESTROY -> if (!destroyed) { view?.onDestroy(); destroyed = true }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (!destroyed) {
+                view?.onPause()
+                view?.onStop()
+                view?.onDestroy()
+            }
+        }
+    }
+
+    LaunchedEffect(naverMap, session.sessionId, session.version) {
+        val map = naverMap ?: return@LaunchedEffect
+        markers.forEach { it.map = null }
+        markers.clear()
+        routeLine?.map = null
+        routeLine = null
+
+        val bounds = LatLngBounds.Builder()
+        val boundPoints = mutableListOf<LatLng>()
+        fun addMarker(point: Point, caption: String, color: Int) {
+            val position = LatLng(point.lat, point.lon)
+            markers += Marker().apply {
+                this.position = position
+                captionText = caption
+                iconTintColor = color
+                this.map = map
+            }
+            boundPoints += position
+        }
+
+        addMarker(session.startPoint, "출발", AndroidColor.rgb(56, 84, 107))
+        val peopleById = session.passengers.associateBy(Passenger::id)
+        val order = session.selectedOrder.ifEmpty { session.route?.order.orEmpty() }
+        order.forEachIndexed { index, id ->
+            peopleById[id]?.let { passenger ->
+                addMarker(passenger.point, "${index + 1} · ${passenger.displayName}", if (index == 0) AndroidColor.rgb(242, 139, 88) else AndroidColor.rgb(34, 155, 141))
+            }
+        }
+        session.finalPoint?.let { addMarker(it, "도착", AndroidColor.rgb(56, 84, 107)) }
+
+        val geometry = session.route?.geometry.orEmpty()
+        if (geometry.size > 1) {
+            val coordinates = geometry.map { LatLng(it.lat, it.lon) }
+            routeLine = PolylineOverlay().apply {
+                coords = coordinates
+                color = AndroidColor.rgb(19, 143, 133)
+                width = 12
+                this.map = map
+            }
+            boundPoints += coordinates
+        }
+        boundPoints.forEach(bounds::include)
+        if (boundPoints.size > 1) {
+            map.moveCamera(CameraUpdate.fitBounds(bounds.build(), 48))
+        } else {
+            map.moveCamera(CameraUpdate.scrollTo(LatLng(session.startPoint.lat, session.startPoint.lon)))
         }
     }
 }
@@ -357,7 +496,7 @@ private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, mode
     val enabled = state.simulatedParked && !state.busy && session.state in setOf("COLLECTING", "PLANNED")
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionTitle("경로 조건", "출발지와 최종 목적지를 포함해 모의 비교")
+            SectionTitle("경로 조건", if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "서버가 순서를 비교하고 Pleos 내비에 목적지를 요청" else "출발지와 최종 목적지를 포함해 모의 비교")
             Text("출발지 · ${session.startPoint.label} · ${"%.4f".format(Locale.US, session.startPoint.lat)}, ${"%.4f".format(Locale.US, session.startPoint.lon)}", color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -408,9 +547,19 @@ private fun PriorityPicker(session: DriverSession, state: DriverUiState, model: 
 @Composable
 private fun OrderCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
     val route = session.route ?: return
+    var confirmPleosRoute by remember { mutableStateOf(false) }
     val active = session.state == "ACTIVE"
     val canEdit = state.simulatedParked && !state.busy && !active
     val names = session.passengers.associateBy(Passenger::id)
+    if (confirmPleosRoute) {
+        AlertDialog(
+            onDismissRequest = { confirmPleosRoute = false },
+            title = { Text("Pleos 내비 목적지를 변경할까요?") },
+            text = { Text("최적화된 첫 하차 지점을 차량 내비에 전송합니다. 이미 안내 중인 경로가 있다면 바뀔 수 있습니다. 다음 목적지는 하차 완료를 누를 때마다 전송됩니다.") },
+            confirmButton = { TextButton(onClick = { confirmPleosRoute = false; model.startRoute() }) { Text("Pleos 내비로 전송") } },
+            dismissButton = { TextButton(onClick = { confirmPleosRoute = false }) { Text("취소") } },
+        )
+    }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SectionTitle("선택한 하차 순서", "${route.evaluatedCount}개 비교 · 추천/수동 비용 동일 provider")
@@ -431,8 +580,12 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
             }
             Text("조회 ${route.fetchedAt} · 출처 ${route.dataSource} · 승객별 ETA는 제공하지 않음", color = Muted, fontSize = 11.sp)
             if (session.state == "PLANNED") {
-                Button(onClick = { model.startRoute() }, enabled = canEdit, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text("경로 확정 · 모의 안내", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
+                    enabled = canEdit,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) {
+                    Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서 확정 · Pleos 내비 전송" else "경로 확정 · 모의 안내", fontWeight = FontWeight.Bold)
                 }
                 if (!state.simulatedParked) Text("정차 확인 전에는 확정할 수 없습니다.", color = Color(0xFFFFD18D), fontSize = 12.sp)
             }
@@ -447,7 +600,7 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
     val readyToFinish = passenger == null && session.finalPoint == null
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF123A3B)), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("모의 내비 안내 · 실제 차량 내비 연결 없음", color = Mint, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos NaviHelper 내비 안내" else "모의 내비 안내 · 실제 차량 내비 연결 없음", color = Mint, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(state.navigationMessage.ifBlank { "앱이 다시 연결됐습니다. 현재 목적지를 운전자가 확인해 주세요." }, color = Color(0xFFD9EBE8))
             Divider(color = Color(0xFF315655))
             Text("${session.selectedOrder.size - session.activeIndex}명 남음", color = Muted, fontSize = 12.sp)
@@ -465,12 +618,12 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
                 color = Muted,
             )
             if (!state.navigationConfirmed) {
-                Button(onClick = { model.retryNavigation() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("모의 안내 다시 요청") }
-            } else {
+                Button(onClick = { model.retryNavigation() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 다시 요청" else "모의 안내 다시 요청") }
+            } else if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) {
                 OutlinedButton(onClick = { model.simulateNavigationFailure() }, enabled = state.simulatedParked && !state.busy, modifier = Modifier.fillMaxWidth()) { Text("안내 실패·재시도 시연") }
             }
             when {
-                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("정차 후 하차 완료 · 시연") }
+                passenger != null -> Button(onClick = { model.completeCurrentStop() }, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "정차 확인 · 다음 내비 목적지 전송" else "정차 후 하차 완료 · 시연") }
                 finalLeg -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("최종 목적지 도착 · 이동 종료") }
                 readyToFinish -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
             }
@@ -515,8 +668,8 @@ private fun MessageBanner(text: String, color: Color, onDismiss: () -> Unit) {
 @Composable
 private fun Footer() {
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 7.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("MOAGIL · mockDebug", color = Muted, fontSize = 11.sp)
-        Text("시연용 좌표·직선거리 추정 · 실제 운행 금지", color = Muted, fontSize = 11.sp)
+        Text("MOAGIL · ${BuildConfig.FLAVOR}${BuildConfig.BUILD_TYPE.replaceFirstChar(Char::uppercase)}", color = Muted, fontSize = 11.sp)
+        Text("차량 센서·정차 상태는 시연값 · 실제 주행 금지", color = Muted, fontSize = 11.sp)
     }
 }
 

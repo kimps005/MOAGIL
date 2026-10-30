@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from datetime import datetime, timezone
 from itertools import permutations
 from math import asin, cos, radians, sin, sqrt
@@ -59,6 +60,8 @@ def plan_routes(
     final_point: dict | None = None,
     priority_id: str | None = None,
     evaluator: Callable[[list[dict]], dict] = evaluate_route,
+    max_workers: int = 1,
+    timeout_seconds: float | None = None,
 ) -> list[dict]:
     if not 1 <= len(passengers) <= 4:
         raise RouteError("경로 계산은 동승자 1~4명일 때 가능합니다")
@@ -74,8 +77,7 @@ def plan_routes(
         if priority_id
         else [list(order) for order in permutations(passengers)]
     )
-    results = []
-    for order in orders:
+    def score(order):
         points = [start, *[p["point"] for p in order]]
         if final_point:
             points.append(final_point)
@@ -83,14 +85,32 @@ def plan_routes(
         if not isinstance(estimate.get("durationMs"), int) or estimate["durationMs"] < 0:
             raise RouteError("경로 제공자 응답이 올바르지 않습니다")
         distance = estimate.get("distanceM")
-        results.append({
+        return {
             "order": [p["id"] for p in order],
             "durationMs": estimate["durationMs"],
             "distanceM": distance,
             "tollKrw": estimate.get("tollKrw"),
             "dataSource": estimate.get("dataSource", "unknown"),
             "fetchedAt": estimate.get("fetchedAt", utc_now()),
-        })
+            "geometry": estimate.get("geometry"),
+            "snappedWaypoints": estimate.get("snappedWaypoints"),
+        }
+
+    if max_workers <= 1:
+        results = [score(order) for order in orders]
+    else:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        futures = [executor.submit(score, order) for order in orders]
+        _done, pending = concurrent.futures.wait(futures, timeout=timeout_seconds)
+        if pending:
+            for future in pending:
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise RouteError("경로 비교가 제한 시간 120초를 넘었습니다. 잠시 뒤 다시 시도해 주세요")
+        try:
+            results = [future.result() for future in futures]
+        finally:
+            executor.shutdown(wait=True)
     return sorted(
         results,
         key=lambda item: (

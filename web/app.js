@@ -1,6 +1,10 @@
-/* MOAGIL P0 browser prototype. All route, location and navigation labels stay in mock mode. */
+/* MOAGIL route planner. Map tiles and road routes use OpenStreetMap data. */
 const app = document.getElementById('app');
 const captureMode = new URLSearchParams(location.search).has('capture');
+let activeMaps = [];
+let passengerMapController = null;
+let mapConfigPromise = null;
+let naverMapScriptPromise = null;
 const state = {
   session: null,
   credentials: null,
@@ -12,10 +16,11 @@ const state = {
   joinId: null,
   joinInfo: null,
   joined: false,
-  drag: false,
   pinMode: 'passenger',
   saving: false,
   showPhone: false,
+  mapProvider: 'osm',
+  routingProvider: 'osrm',
 };
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
@@ -30,7 +35,7 @@ async function api(path, options = {}, token = '') {
   try {
     response = await fetch(path, { ...options, headers, cache: 'no-store' });
   } catch (_error) {
-    throw new Error('서버에 연결할 수 없습니다. 서버와 같은 Wi-Fi인지 확인해 주세요.');
+    throw new Error('서버에 연결할 수 없습니다. QR 주소와 PC 시연 서버가 켜져 있는지 확인해 주세요.');
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error?.message || '요청을 처리하지 못했습니다.');
@@ -79,31 +84,42 @@ function currentOrder() {
   return order.map(id => by.get(id)).filter(Boolean);
 }
 
-function pinPosition(point) {
-  const x = Math.min(955, Math.max(45, ((point.lon - 126.94) / 0.14) * 1000));
-  const y = Math.min(525, Math.max(45, ((37.59 - point.lat) / 0.13) * 560));
-  return { x, y };
+async function loadMapConfig() {
+  if (!mapConfigPromise) {
+    mapConfigPromise = api('/api/config').then(config => {
+      state.mapProvider = config.mapProvider || 'osm';
+      state.routingProvider = config.routingProvider || 'osrm';
+      return config;
+    }).catch(() => {
+      state.mapProvider = 'osm';
+      state.routingProvider = 'osrm';
+      return { mapProvider: 'osm', routingProvider: 'osrm', naverMapClientId: '' };
+    });
+  }
+  return mapConfigPromise;
 }
 
-function carMap() {
-  const people = state.session?.passengers || [];
-  const order = currentOrder();
-  let line = '';
-  const points = [];
-  if (state.session) points.push({ ...state.session.startPoint, color: '#37586d', mark: '출발' });
-  if (order.length) order.forEach((person, index) => points.push({ ...person.point, color: index === 0 ? '#f28b58' : '#2caa98', mark: String(index + 1) }));
-  else people.forEach((person, index) => points.push({ ...person.point, color: '#2caa98', mark: String(index + 1) }));
-  if (state.session?.finalPoint && order.length) points.push({ ...state.session.finalPoint, color: '#37586d', mark: 'F' });
-  const locations = points.map(point => ({ ...point, ...pinPosition(point) }));
-  if (locations.length > 1) line = '<polyline points="' + locations.map(point => point.x + ',' + point.y).join(' ') + '" fill="none" stroke="#138f85" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 11" opacity=".75" />';
-  const pinSvg = locations.map(point => '<g transform="translate(' + point.x + ' ' + point.y + ')"><circle r="18" fill="' + point.color + '" opacity=".14"/><circle r="11" fill="' + point.color + '" stroke="#f7fbf8" stroke-width="3"/><text y="4" text-anchor="middle" fill="#fff" font-size="8" font-weight="800">' + esc(point.mark) + '</text></g>').join('');
-  return '<svg class="map-svg" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid slice" role="img" aria-label="실제 지형이 아닌 시연용 지도">'
-    + '<defs><pattern id="blocks" width="210" height="150" patternUnits="userSpaceOnUse"><rect x="18" y="20" width="77" height="45" rx="7" fill="#d8e4db"/><rect x="111" y="19" width="78" height="65" rx="7" fill="#d4e1d9"/><rect x="26" y="88" width="135" height="43" rx="7" fill="#dbe6df"/><path d="M0 73h210M103 0v150" stroke="#f5f7f3" stroke-width="13"/><path d="M0 73h210M103 0v150" stroke="#c6d4cc" stroke-width="1"/></pattern></defs>'
-    + '<rect width="1000" height="560" fill="#e8efe9"/><rect width="1000" height="560" fill="url(#blocks)"/>'
-    + '<path d="M-50 440 C160 390 230 450 390 345 S690 220 1050 290" fill="none" stroke="#b8d9d0" stroke-width="34" opacity=".8"/><path d="M-50 440 C160 390 230 450 390 345 S690 220 1050 290" fill="none" stroke="#f5faf6" stroke-width="23"/>'
-    + '<path d="M80 560 C140 380 280 330 320 200 S420 50 510 -40M520 600 C560 450 600 370 720 320 S900 170 1030 120" fill="none" stroke="#c1d4ca" stroke-width="17"/><path d="M80 560 C140 380 280 330 320 200 S420 50 510 -40M520 600 C560 450 600 370 720 320 S900 170 1030 120" fill="none" stroke="#f9fbf8" stroke-width="11"/>'
-    + '<path d="M25 179h240M600 100h310M590 470h280" stroke="#a4cbbb" stroke-width="36" opacity=".4" stroke-linecap="round"/>'
-    + line + pinSvg + '</svg>';
+async function getMapAdapter() {
+  const config = await loadMapConfig();
+  if (config.mapProvider === 'naver' && config.naverMapClientId) {
+    if (!window.naver?.maps) {
+      if (!naverMapScriptPromise) {
+        naverMapScriptPromise = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(config.naverMapClientId);
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error('네이버 지도 API를 불러오지 못했습니다. Client ID와 등록 도메인을 확인해 주세요.'));
+          document.head.appendChild(script);
+        });
+      }
+      await naverMapScriptPromise;
+    }
+    if (!window.MOAGILNaverMaps) throw new Error('네이버 지도 모듈을 초기화하지 못했습니다.');
+    return window.MOAGILNaverMaps;
+  }
+  if (!window.MOAGILMaps) throw new Error('OpenStreetMap 모듈을 불러오지 못했습니다.');
+  return window.MOAGILMaps;
 }
 
 function passengerRows() {
@@ -117,7 +133,8 @@ function routeRows() {
   if (!state.session?.routeSnapshot || !order.length) return '<div class="empty-list">동승자가 한 명 이상 등록되고 정차 상태일 때<br>순서를 계산할 수 있습니다.</div>';
   const editable = state.session.state === 'PLANNED' && state.parked;
   const items = order.map((person, index) => '<li class="order-item"><span class="order-number">' + (index + 1) + '</span><div><div class="order-name">' + esc(person.displayName) + '</div><div class="order-destination">' + esc(person.point.label || '시연 지점') + '</div></div><div class="order-move">' + (editable ? '<button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="-1" aria-label="위로 이동" ' + (index === 0 || (state.session.priorityPassengerId && index === 1) ? 'disabled' : '') + '>↑</button><button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="1" aria-label="아래로 이동" ' + (index === order.length - 1 || (state.session.priorityPassengerId && index === 0) ? 'disabled' : '') + '>↓</button>' : '') + '</div></li>').join('');
-  return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">모의 계산</div></div><ol class="order-list">' + items + '</ol></div>';
+  const providerLabel = state.routingProvider === 'naver' ? 'NAVER 실시간 경로' : state.routingProvider === 'osrm' ? '실제 도로 경로' : '모의 계산';
+  return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">' + providerLabel + '</div></div><ol class="order-list">' + items + '</ol></div>';
 }
 
 function activeDestination() {
@@ -136,6 +153,8 @@ function driverMarkup() {
   const destination = state.session?.state === 'ACTIVE' ? activeDestination() : null;
   const currentPassenger = destination && (state.session.activeIndex || 0) < order.length;
   const finalArrived = destination && !currentPassenger && Boolean(state.session.finalPoint);
+  const mapName = state.mapProvider === 'naver' ? '네이버 지도' : 'OpenStreetMap';
+  const routeProviderLabel = state.routingProvider === 'naver' ? '네이버 Directions · 실시간 교통' : state.routingProvider === 'osrm' ? 'OSRM · 실시간 교통 없음' : '모의 경로';
   const mobileJoin = state.credentials ? state.credentials.joinBaseUrl + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken) : '';
   const capture = captureMode;
   let pageTitle = hasSession ? (state.session.state === 'ACTIVE' ? '이동 중에도, 다음 목적지는 또렷하게.' : '모두의 목적지를 한눈에.') : '여러 목적지, 순서는 한 번에.';
@@ -143,7 +162,7 @@ function driverMarkup() {
   const phoneUrl = capture && state.credentials ? location.origin + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken) : '';
   const phonePreview = capture && state.showPhone ? '<div class="preview-backdrop"><section class="preview-panel"><div class="preview-copy"><div class="eyebrow">시연용 브라우저 · 실제 휴대폰 연결 아님</div><h2>동승자가 모바일 화면에서<br>직접 핀을 등록해요.</h2><p class="subcopy">화면 오른쪽의 휴대폰은 이 브라우저 안에서 열린 참가 페이지입니다. 실제 QR은 촬영 보호 모드로 가렸습니다.</p><button class="btn" data-action="close-preview">미리보기 닫기</button></div><div class="phone-device"><div class="phone-notch"></div><iframe title="시연용 참가자 모바일 화면" src="' + esc(phoneUrl) + '"></iframe></div></section></div>' : '';
   return '<div class="app-shell">'
-    + '<header class="topbar"><a class="brand" href="/"><span class="brand-mark">M</span><span><span class="brand-name">MOAGIL</span><span class="brand-sub">모아길 · 함께 가는 길</span></span></a><div class="nav-right"><span class="mock-pill">시연용 모의 환경</span>'
+    + '<header class="topbar"><a class="brand" href="/"><span class="brand-mark">M</span><span><span class="brand-name">MOAGIL</span><span class="brand-sub">모아길 · 함께 가는 길</span></span></a><div class="nav-right"><span class="mock-pill">실제 지도·경로 · 차량 연동 모의</span>'
     + '<button class="park-toggle ' + (state.parked ? 'is-parked' : '') + '" data-action="park">' + (state.parked ? '● 정차 확인 · 시연' : '○ 정차 상태 확인') + '</button><span class="status-pill"><i class="status-dot ' + (hasSession ? '' : 'off') + '"></i>' + (hasSession ? state.session.state === 'ACTIVE' ? '이동 진행 중' : '서버 연결됨' : '새 이동 대기') + '</span></div></header>'
     + '<section class="page-title"><div><div class="eyebrow">공동 이동 데모 · 차량 화면</div><h1>' + pageTitle + '</h1><p class="subcopy">' + pageSub + '</p></div><div class="button-row">' + (hasSession ? '<button class="btn" data-action="new">새 이동 만들기</button>' : '<button class="btn" data-action="new">새 이동 만들기</button>') + '<button class="btn primary" data-action="demo">시연 데이터로 시작</button></div></section>'
     + (hasSession ? '<section class="dashboard-grid">'
@@ -152,19 +171,20 @@ function driverMarkup() {
       + '<div class="recruit-card"><div class="recruit-copy"><div class="eyebrow">QR로 바로 참여</div><h2>각자 내릴 곳을<br>직접 등록해요.</h2><p class="mini-note">앱 설치나 회원가입 없이 모바일 브라우저에서 참여할 수 있어요.</p><div class="join-link"><span class="link-text">' + esc(state.credentials?.joinBaseUrl || location.origin) + '/join/' + shortId(state.session.sessionId) + '?invite=••••••••</span><button class="tiny-button" data-action="copy">링크 복사</button></div>' + (capture ? '<button class="tiny-button" style="margin-top:9px" data-action="preview">휴대폰 미리보기 열기 →</button>' : '') + '</div><div class="qr-card ' + (capture ? 'capture-mode' : '') + '" id="qr-card">' + (capture ? '<div class="qr-masked"></div><span>촬영 보호 · 초대 QR 가림</span>' : '<canvas id="invite-qr" aria-label="모바일 초대 QR 코드"></canvas><span>모바일 카메라로 스캔</span>') + '</div></div>'
       + '<div class="stat-grid"><div class="stat-box"><div class="stat-label">참여 인원</div><div class="stat-value">' + state.session.passengers.length + '<small> / 4</small></div></div><div class="stat-box"><div class="stat-label">계산된 순서</div><div class="stat-value">' + (state.session.routeSnapshot?.evaluatedCount || '—') + '<small> 가지</small></div></div><div class="stat-box"><div class="stat-label">세션 상태</div><div class="stat-value" style="font-size:14px">' + (state.session.state === 'COLLECTING' ? '모집 중' : state.session.state === 'PLANNED' ? '순서 확인' : state.session.state === 'ACTIVE' ? '안내 중' : '완료') + '</div></div></div></div>'
       + '</div>'
-      + '<div class="card map-card"><div class="map-topline"><span class="map-label">⌁ 시연 지도 · 실제 지형 아님</span><span class="map-label">점선은 직선 연결 예시</span></div>' + carMap() + '<div class="map-legend"><span class="legend-item"><i class="legend-dot dark"></i>출발·최종 목적지</span><span class="legend-item"><i class="legend-dot orange"></i>다음 하차</span><span class="legend-item"><i class="legend-dot"></i>동승자 위치</span></div></div>'
+      + '<div class="card map-card"><div class="map-topline"><span class="map-label">⌁ ' + mapName + ' 실제 도로 지도</span><span class="map-label">' + (state.session.routeSnapshot?.geometry?.length ? routeProviderLabel : '경로 계산 후 도로 경로를 표시합니다') + '</span></div><div id="driver-map" class="driver-map" role="application" aria-label="' + mapName + ' 지도와 실제 도로 경로"></div><div class="map-legend"><span class="legend-item"><i class="legend-dot dark"></i>출발·최종 목적지</span><span class="legend-item"><i class="legend-dot orange"></i>다음 하차</span><span class="legend-item"><i class="legend-dot"></i>동승자 위치</span></div></div>'
       + '</section>'
       + '<section class="content-grid">'
       + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">현재 세션</div><h2 class="card-title">동승자 위치</h2></div><span class="mini-note">' + (collecting ? '등록 후 2초 이내 반영' : state.session.state === 'ACTIVE' ? '모의 안내 중' : '세션 정보') + '</span></div>' + passengerRows() + '</div>'
-      + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">시연용 직선거리 추정</div><h2 class="card-title">하차 순서 추천</h2></div><span class="mini-note">실제 도로·교통 미포함</span></div>'
+        + '<div class="card card-pad"><div class="card-head"><div><div class="card-kicker">' + mapName + ' 실제 도로망</div><h2 class="card-title">하차 순서 추천</h2></div><span class="mini-note">' + routeProviderLabel + '</span></div>'
       + (state.session.state === 'ACTIVE' ? '<div class="active-card"><div class="safety-banner ready">● 모의 내비 안내 · 운전자 정차 확인 상태</div><div class="mini-note">현재 단계 · ' + esc(destination.type) + '</div><div class="active-destination"><small>다음 안내 목적지</small><strong>' + esc(destination.label) + '</strong><small>' + (destination.point ? destination.point.lat.toFixed(5) + ', ' + destination.point.lon.toFixed(5) : '하차 단계가 모두 끝났습니다') + '</small></div><div class="route-actions">' + (currentPassenger ? '<button class="btn primary" data-action="complete-stop">하차 완료 · 시연</button>' : '<button class="btn primary" data-action="complete-trip">' + (finalArrived ? '최종 목적지 도착 · 시연' : '이동 마무리 · 시연') + '</button>') + '<button class="btn warn" data-action="end">이동 취소</button></div></div>'
       : '<div class="safety-banner ' + (state.parked ? 'ready' : '') + '">' + (state.parked ? '● 정차(시연) 상태입니다. 이 상태는 실제 차량 감지가 아닙니다.' : '○ 운전자 입력은 정차 상태에서만 열립니다. 정차 확인을 눌러 시연을 진행하세요.') + '</div>'
         + routeRows()
+         + (state.routingProvider === 'naver' && collecting ? '<div class="notice-bar">네이버 Directions 5로 최대 24개 순서를 비교합니다. 계산 한 번에 최대 24회 API 요청이 발생하며 계정 쿼터·요금이 적용될 수 있습니다.</div>' : '')
         + '<div class="settings"><div class="field"><label for="priority">먼저 내릴 동승자</label><select id="priority" ' + (!state.parked || !collecting ? 'disabled' : '') + '><option value="">지정하지 않음</option>' + state.session.passengers.map(person => '<option value="' + esc(person.id) + '" ' + (person.id === state.session.priorityPassengerId ? 'selected' : '') + '>' + esc(person.displayName) + '</option>').join('') + '</select></div><div class="field"><label for="final-choice">운전자 최종 목적지</label><select id="final-choice" ' + (!state.parked || !collecting ? 'disabled' : '') + '><option value="none" ' + (!finalEnabled ? 'selected' : '') + '>마지막 하차에서 종료</option><option value="preset" ' + (finalEnabled ? 'selected' : '') + '>시연 최종 목적지 포함</option></select></div></div>'
         + '<div class="route-actions">' + (state.session.state === 'PLANNED' ? '<button class="btn" data-action="plan" ' + (!state.parked ? 'disabled' : '') + '>다시 계산</button><button class="btn primary" data-action="start" ' + (!state.parked ? 'disabled' : '') + '>경로 확정 · 모의 안내</button>' : '<button class="btn primary" data-action="plan" ' + (!state.parked || state.session.passengers.length < 1 ? 'disabled' : '') + '>가능한 순서 계산</button>') + (state.session.state !== 'ACTIVE' ? '<button class="btn warn" data-action="end">이동 종료</button>' : '') + '</div>')
       + '</div></section>'
-      : '<section class="dashboard-grid"><div class="card card-pad"><div class="eyebrow">시연 프로토타입</div><h2 class="card-title" style="font-size:23px;margin:8px 0 12px">각자 핀을 놓으면,<br>모두의 귀가 순서가 보입니다.</h2><p class="subcopy" style="font-size:12px">QR로 동승자가 참여하고, 차량 화면에서 최대 24가지 순서를 비교합니다. 지도·교통·위치·내비는 모두 시연용 모의 기능입니다.</p><div class="route-actions" style="margin-top:18px"><button class="btn primary" data-action="new">빈 이동 만들기</button><button class="btn" data-action="demo">예시 4명으로 둘러보기</button></div><div class="notice-bar"><strong>사용 흐름</strong><br>① 이동 만들기 → ② 정차 상태(시연) 확인 → ③ QR 공유 및 모바일 위치 등록 → ④ 순서 계산·확정 → ⑤ 단계별 모의 안내</div></div><div class="card map-card"><div class="map-topline"><span class="map-label">시연 지도 · 실제 지형 아님</span><span class="map-label">서울 좌표를 사용한 장식용 지도</span></div>' + carMap() + '<div class="map-legend"><span class="legend-item"><i class="legend-dot dark"></i>출발지</span><span class="legend-item"><i class="legend-dot"></i>동승자 핀</span></div></div></section>')
-    + '<div class="notice-bar"><strong>시연 환경 안내</strong> · 이 프로토타입의 추천은 점 사이 시연용 직선거리 추정입니다. 실제 도로·교통·정차 가능 여부를 반영하지 않으며, 차량 정차 토글과 내비게이션도 모의 상태입니다.</div>'
+      : '<section class="dashboard-grid"><div class="card card-pad"><div class="eyebrow">실제 도로망 경로 계산</div><h2 class="card-title" style="font-size:23px;margin:8px 0 12px">각자 핀을 놓으면,<br>모두의 하차 순서를 찾습니다.</h2><p class="subcopy" style="font-size:12px">' + mapName + ' 지도와 ' + routeProviderLabel + '으로 최대 24개 순서를 비교합니다. 실제 차량 내비 안내는 포함하지 않습니다.</p><div class="route-actions" style="margin-top:18px"><button class="btn primary" data-action="new">빈 이동 만들기</button><button class="btn" data-action="demo">예시 4명으로 둘러보기</button></div><div class="notice-bar"><strong>사용 흐름</strong><br>① 이동 만들기 → ② 정차 상태 확인 → ③ QR 공유 및 하차 위치 등록 → ④ 실제 도로 경로 계산 → ⑤ 단계별 모의 안내</div></div><div class="card map-card"><div class="map-topline"><span class="map-label">' + mapName + ' 실제 도로 지도</span><span class="map-label">' + routeProviderLabel + '</span></div><div id="driver-map" class="driver-map" role="application" aria-label="' + mapName + ' 실제 도로 지도"></div><div class="map-legend"><span class="legend-item"><i class="legend-dot dark"></i>출발지</span><span class="legend-item"><i class="legend-dot"></i>하차 위치</span></div></div></section>')
+     + '<div class="notice-bar"><strong>연동 범위 안내</strong> · 지도와 경로는 설정한 실제 지도·경로 서비스를 사용합니다. 실시간 교통은 네이버 경로 제공자 사용 시에만 반영되며, 차량 센서·Pleos 내비 연동과 안전한 정차 판단은 시연 범위에 포함되지 않습니다.</div>'
     + '<footer class="footer"><span>MOAGIL · 모아길 프로토타입</span><span>시연용 데이터 및 모의 기능 · 실차 주행에 사용하지 마세요</span></footer></div>'
     + (capture ? '<div class="capture-chip">촬영 보호 모드 · 초대 토큰 가림</div>' : '') + phonePreview;
 }
@@ -173,23 +193,19 @@ function joinMarkup() {
   document.body.classList.add('passenger-body');
   const error = state.joinError || '';
   const joined = state.joined;
+  const mapName = state.mapProvider === 'naver' ? '네이버 지도' : 'OpenStreetMap';
+  const routePrivacy = state.routingProvider === 'naver' ? '하차 좌표가 이 서버와 네이버 Directions로 전송되어 실시간 교통을 반영한 실제 도로 경로를 계산합니다.' : '하차 좌표가 이 서버와 공개 OSRM 경로 서버로 전송되어 실제 도로 경로를 계산합니다.';
   const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a><span class="phone-badge">앱 설치 없이 참여</span></header>'
     + '<section class="passenger-heading"><div class="eyebrow">동승자 참여 · ' + shortId(state.joinId) + '</div><h1>' + (joined ? '위치 등록이 완료됐어요.' : '내릴 곳을 직접<br>핀으로 알려주세요.') + '</h1><p>' + (joined ? '운전자 화면에서 확인할 수 있습니다. 이 탭을 닫아도 괜찮아요.' : '별명과 하차 위치만 등록하면 됩니다. 회원가입은 필요하지 않아요.') + '</p></section>';
   if (!state.joinInfo) return heading + '<div class="loading-card">초대 링크를 확인하고 있어요…</div><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
   if (joined) return heading + '<section class="phone-card passenger-result"><div class="success-mark">✓</div><h2>등록 완료 · ' + esc(state.joinedName) + '</h2><p>운전자 화면에서 위치를 확인합니다.<br>위치 수정은 시연 범위에 포함되지 않습니다.</p></section><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
-  return heading + '<form id="passenger-form"><section class="phone-card"><h2>어떤 이름으로 표시할까요?</h2><div class="phone-field"><label for="display-name">별명 · 1~20자</label><input id="display-name" name="displayName" maxlength="20" placeholder="예: 민수" autocomplete="nickname" required></div><div class="phone-map-top"><span>하차 위치를 길게 눌러 핀을 옮겨요</span><span>⌖ 핀 이동</span></div><svg id="pin-map" class="pin-map" viewBox="0 0 1000 1000" role="application" aria-label="시연용 지도. 눌러서 하차 위치 선택" tabindex="0">' + passengerMapSvg() + '</svg>'
+  return heading + '<form id="passenger-form"><section class="phone-card"><h2>어떤 이름으로 표시할까요?</h2><div class="phone-field"><label for="display-name">별명 · 1~20자</label><input id="display-name" name="displayName" maxlength="20" placeholder="예: 민수" autocomplete="nickname" required></div><div class="phone-map-top"><span>실제 지도에서 누르거나 핀을 끌어 하차 위치를 선택해요</span><span>⌖ ' + mapName + '</span></div><div id="pin-map" class="pin-map" role="application" aria-label="' + mapName + ' 도로 지도. 눌러서 하차 위치 선택" tabindex="0"></div>'
     + '<div class="coord-readout"><span>위도 <strong id="read-lat">' + state.pin.lat.toFixed(5) + '</strong></span><span>경도 <strong id="read-lon">' + state.pin.lon.toFixed(5) + '</strong></span></div>'
-    + '<div class="coord-inputs"><div class="phone-field"><label for="coord-lat">위도 입력</label><input id="coord-lat" type="number" min="-90" max="90" step="0.000001" value="' + state.pin.lat.toFixed(6) + '" aria-label="위도"></div><div class="phone-field"><label for="coord-lon">경도 입력</label><input id="coord-lon" type="number" min="-180" max="180" step="0.000001" value="' + state.pin.lon.toFixed(6) + '" aria-label="경도"></div></div>'
-    + '<div class="phone-field" style="margin-top:13px"><label for="place-label">위치 이름 · 선택</label><input id="place-label" name="label" maxlength="80" value="' + esc(state.pin.label) + '" placeholder="시연 지점"></div><div class="privacy-note"><span>ⓘ</span><span>시연 지도는 실제 지형이나 도로를 표시하지 않습니다. 지정 위치가 안전하거나 합법적인 정차 지점임을 보장하지 않아요.</span></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>위치 등록</button></div></form><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
-}
-
-function passengerMapSvg() {
-  const x = ((state.pin.lon - 126.94) / 0.14) * 1000;
-  const y = ((37.59 - state.pin.lat) / 0.13) * 1000;
-  return '<defs><pattern id="phone-blocks" width="250" height="220" patternUnits="userSpaceOnUse"><rect x="18" y="18" width="100" height="64" rx="8" fill="#d1e0d5"/><rect x="137" y="18" width="95" height="92" rx="8" fill="#d7e5d9"/><rect x="18" y="100" width="145" height="100" rx="8" fill="#d5e3d8"/><path d="M0 91h250M126 0v220" stroke="#f8faf6" stroke-width="19"/><path d="M0 91h250M126 0v220" stroke="#c2d3c9" stroke-width="1"/></pattern></defs><rect width="1000" height="1000" fill="#e7efe8"/><rect width="1000" height="1000" fill="url(#phone-blocks)"/><path d="M-50 810 C160 700 280 810 390 620 S690 390 1050 470" fill="none" stroke="#b8d9d0" stroke-width="56"/><path d="M-50 810 C160 700 280 810 390 620 S690 390 1050 470" fill="none" stroke="#fbfcf8" stroke-width="37"/><path d="M80 1050 C150 760 300 620 360 340 S470 60 510 -50M580 1100 C620 850 650 700 820 620 S960 390 1050 300" fill="none" stroke="#c2d7ca" stroke-width="32"/><path d="M80 1050 C150 760 300 620 360 340 S470 60 510 -50M580 1100 C620 850 650 700 820 620 S960 390 1050 300" fill="none" stroke="#fbfcf8" stroke-width="21"/><g id="phone-pin" transform="translate(' + x + ' ' + y + ')"><circle r="40" fill="#229b8d" opacity=".14"/><circle r="22" fill="#229b8d" stroke="#fff" stroke-width="9"/><circle r="7" fill="#fff"/></g><text x="28" y="54" fill="#637e76" font-size="23" font-weight="700">시연 지도 · 실제 지형 아님</text>';
+      + '<div class="coord-inputs"><div class="phone-field"><label for="coord-lat">위도 입력</label><input id="coord-lat" type="number" min="-90" max="90" step="0.000001" value="' + state.pin.lat.toFixed(6) + '" aria-label="위도"></div><div class="phone-field"><label for="coord-lon">경도 입력</label><input id="coord-lon" type="number" min="-180" max="180" step="0.000001" value="' + state.pin.lon.toFixed(6) + '" aria-label="경도"></div></div><div class="phone-field" style="margin-top:13px"><label for="place-label">위치 이름 · 선택</label><input id="place-label" name="label" maxlength="80" value="' + esc(state.pin.label) + '" placeholder="시연 지점"></div><div class="privacy-note"><span>ⓘ</span><span>' + routePrivacy + ' 시연용 좌표를 사용하세요. 실시간 교통 정보 외에 안전한 정차 여부는 보장하지 않아요.</span></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>위치 등록</button></div></form><footer class="footer"><span>모아길 · 시연용 모바일 웹</span></footer></main>';
 }
 
 function render() {
+  destroyLeafletMaps();
   if (location.pathname.startsWith('/join/')) {
     app.innerHTML = joinMarkup();
     bindPassengerMap();
@@ -202,6 +218,26 @@ function render() {
   if (canvas && state.credentials) {
     const joinUrl = state.credentials.joinBaseUrl + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken);
     try { drawQr(canvas, joinUrl); } catch (_error) { toast('초대 QR을 표시하지 못했습니다. 주소를 복사해 사용해 주세요.'); }
+  }
+  bindDriverMap();
+}
+
+function destroyLeafletMaps() {
+  activeMaps.forEach(instance => instance.destroy?.());
+  activeMaps = [];
+  passengerMapController = null;
+}
+
+async function bindDriverMap() {
+  const element = byId('driver-map');
+  if (!element) return;
+  try {
+    const maps = await getMapAdapter();
+    if (!element.isConnected) return;
+    const instance = maps.createDriverMap(element, state.session);
+    activeMaps.push(instance.destroy ? instance : { destroy: () => instance.remove() });
+  } catch (_error) {
+    if (element.isConnected) element.innerHTML = '<div class="map-error">네이버 지도를 불러오지 못했어요.<br>Client ID, 등록 URL, Dynamic Map 설정을 확인해 주세요.</div>';
   }
 }
 
@@ -391,28 +427,18 @@ async function refreshSession(force = false) {
   }
 }
 
-function svgPoint(event, svg) {
-  const point = svg.createSVGPoint();
-  point.x = event.clientX;
-  point.y = event.clientY;
-  return point.matrixTransform(svg.getScreenCTM().inverse());
-}
-
-function setPassengerPin(event) {
-  const svg = byId('pin-map');
-  if (!svg) return;
-  const local = svgPoint(event, svg);
-  const x = Math.min(1000, Math.max(0, local.x));
-  const y = Math.min(1000, Math.max(0, local.y));
-  state.pin = { lat: +(37.59 - (y / 1000) * 0.13).toFixed(6), lon: +(126.94 + (x / 1000) * 0.14).toFixed(6), label: (byId('place-label')?.value || '').trim() || '시연 위치' };
-  const pin = byId('phone-pin');
-  if (pin) pin.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
+function updatePassengerPoint(point) {
+  state.pin = {
+    lat: +Number(point.lat).toFixed(6),
+    lon: +Number(point.lon).toFixed(6),
+    label: (byId('place-label')?.value || '').trim() || state.pin.label || '시연 위치',
+  };
   if (byId('read-lat')) byId('read-lat').textContent = state.pin.lat.toFixed(5);
   if (byId('read-lon')) byId('read-lon').textContent = state.pin.lon.toFixed(5);
   if (byId('coord-lat')) byId('coord-lat').value = state.pin.lat.toFixed(6);
   if (byId('coord-lon')) byId('coord-lon').value = state.pin.lon.toFixed(6);
   const label = byId('place-label');
-  if (label && !label.value) label.value = '시연 위치';
+  if (label && !label.value) label.value = state.pin.label;
 }
 
 function syncCoordinatesToMap() {
@@ -426,39 +452,27 @@ function syncCoordinatesToMap() {
     if (error) error.textContent = '위도는 -90~90, 경도는 -180~180 범위로 입력해 주세요.';
     return false;
   }
-  state.pin.lat = +lat.toFixed(6);
-  state.pin.lon = +lon.toFixed(6);
-  state.pin.label = (byId('place-label')?.value || '').trim() || '시연 위치';
-  const x = Math.min(1000, Math.max(0, ((lon - 126.94) / 0.14) * 1000));
-  const y = Math.min(1000, Math.max(0, ((37.59 - lat) / 0.13) * 1000));
-  byId('phone-pin')?.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
-  byId('read-lat').textContent = state.pin.lat.toFixed(5);
-  byId('read-lon').textContent = state.pin.lon.toFixed(5);
+  updatePassengerPoint({ lat, lon });
+  passengerMapController?.setPoint(state.pin, false);
   if (error) error.textContent = '';
   return true;
 }
 
-function bindPassengerMap() {
-  const svg = byId('pin-map');
-  if (!svg) return;
-  svg.addEventListener('pointerdown', event => { state.drag = true; svg.setPointerCapture(event.pointerId); setPassengerPin(event); });
-  svg.addEventListener('pointermove', event => { if (state.drag) setPassengerPin(event); });
-  svg.addEventListener('pointerup', () => { state.drag = false; });
-  svg.addEventListener('keydown', event => {
-    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-    event.preventDefault();
-    const step = event.shiftKey ? 0.003 : 0.0005;
-    if (event.key === 'ArrowUp') state.pin.lat = Math.min(90, state.pin.lat + step);
-    if (event.key === 'ArrowDown') state.pin.lat = Math.max(-90, state.pin.lat - step);
-    if (event.key === 'ArrowLeft') state.pin.lon = Math.max(-180, state.pin.lon - step);
-    if (event.key === 'ArrowRight') state.pin.lon = Math.min(180, state.pin.lon + step);
-    state.pin.lat = +state.pin.lat.toFixed(6); state.pin.lon = +state.pin.lon.toFixed(6);
-    const x = Math.min(1000, Math.max(0, ((state.pin.lon - 126.94) / 0.14) * 1000));
-    const y = Math.min(1000, Math.max(0, ((37.59 - state.pin.lat) / 0.13) * 1000));
-    byId('phone-pin')?.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
-    byId('read-lat').textContent = state.pin.lat.toFixed(5); byId('read-lon').textContent = state.pin.lon.toFixed(5);
-    byId('coord-lat').value = state.pin.lat.toFixed(6); byId('coord-lon').value = state.pin.lon.toFixed(6);
-  });
+async function bindPassengerMap() {
+  const element = byId('pin-map');
+  if (!element) return;
+  try {
+    const maps = await getMapAdapter();
+    if (!element.isConnected) return;
+    passengerMapController = maps.createPassengerMap(element, state.pin, updatePassengerPoint);
+    if (passengerMapController.destroy) activeMaps.push(passengerMapController);
+    else {
+      const map = passengerMapController.map;
+      activeMaps.push({ destroy: () => map.remove() });
+    }
+  } catch (_error) {
+    if (element.isConnected) element.innerHTML = '<div class="map-error">네이버 지도를 불러오지 못했어요.<br>Client ID, 등록 URL, Dynamic Map 설정을 확인해 주세요.</div>';
+  }
 }
 
 async function initializePassenger() {
@@ -542,6 +556,7 @@ app.addEventListener('submit', event => {
 });
 
 async function startApp() {
+  await loadMapConfig();
   if (location.pathname.startsWith('/join/')) return initializePassenger();
   sessionStorage.removeItem('moagil-parked');
   state.credentials = loadCredentials();

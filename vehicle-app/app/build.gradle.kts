@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
+
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.isFile) propertiesFile.inputStream().use { this.load(it) }
+}
+val naverMapClientId = localProperties.getProperty("naver.map.clientId", "").trim()
+val escapedNaverMapClientId = naverMapClientId.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "kr.moagil.vehicle"
@@ -14,6 +23,17 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["naverMapClientId"] = naverMapClientId
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$escapedNaverMapClientId\"")
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
     }
 
     flavorDimensions += "service"
@@ -22,6 +42,12 @@ android {
             dimension = "service"
             applicationIdSuffix = ".mock"
             versionNameSuffix = "-mock"
+            buildConfigField("boolean", "PLEOS_NATIVE_NAVIGATION", "false")
+        }
+        create("pleos") {
+            dimension = "service"
+            versionNameSuffix = "-pleos"
+            buildConfigField("boolean", "PLEOS_NATIVE_NAVIGATION", "true")
         }
     }
 
@@ -32,7 +58,10 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -50,10 +79,13 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
+    implementation("com.naver.maps:map-sdk:3.24.0")
+    add("pleosImplementation", "ai.pleos.playground:NaviHelper:3.0.5")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

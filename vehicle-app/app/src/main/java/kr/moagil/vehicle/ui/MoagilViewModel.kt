@@ -3,10 +3,16 @@ package kr.moagil.vehicle.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kr.moagil.vehicle.data.ApiException
 import kr.moagil.vehicle.data.DriverCredentials
 import kr.moagil.vehicle.data.DriverSession
@@ -15,12 +21,10 @@ import kr.moagil.vehicle.data.MoagilApi
 import kr.moagil.vehicle.data.Passenger
 import kr.moagil.vehicle.data.Point
 import kr.moagil.vehicle.navigation.DrivingState
+import kr.moagil.vehicle.navigation.createNavigationPort
 import kr.moagil.vehicle.navigation.MockDrivingStatePort
-import kr.moagil.vehicle.navigation.MockNavigationPort
 import kr.moagil.vehicle.navigation.NavigationResult
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kr.moagil.vehicle.BuildConfig
 
 data class DriverUiState(
     val apiBaseUrl: String = "http://10.0.2.2:8080",
@@ -42,7 +46,7 @@ data class DriverUiState(
 
 class MoagilViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = DriverVault(application)
-    private val navigation = MockNavigationPort()
+    private val navigation = createNavigationPort(application)
     private val driving = MockDrivingStatePort()
     private val _state = MutableStateFlow(DriverUiState())
     val state: StateFlow<DriverUiState> = _state.asStateFlow()
@@ -145,7 +149,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         ensureParked()
         val credentials = requireCredentials()
         val updated = MoagilApi(credentials.apiBaseUrl).start(credentials, requireSession())
-        acceptSession(updated, "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
+        acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 첫 하차 목적지를 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
         requestCurrentNavigation()
     }
 
@@ -197,7 +201,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun simulateNavigationFailure() = driverAction {
         ensureParked()
         check(requireSession().state == "ACTIVE") { "먼저 모의 안내를 시작해 주세요." }
-        navigation.failNextRequest()
+        check(navigation.failNextRequest()) { "안내 실패 시연은 mock 빌드에서만 사용할 수 있습니다." }
         requestCurrentNavigation()
     }
 
@@ -220,11 +224,11 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             _state.value = _state.value.copy(navigationMessage = "모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.", navigationConfirmed = true)
             return
         }
-        _state.value = _state.value.copy(navigationMessage = "모의 내비 안내 요청 중… · ${point.label}", navigationConfirmed = false)
+        _state.value = _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos NaviHelper 경로 요청 중… · ${point.label}" else "모의 내비 안내 요청 중… · ${point.label}", navigationConfirmed = false)
         _state.value = when (val result = navigation.navigateTo(point)) {
-            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
-            is NavigationResult.Rejected -> _state.value.copy(navigationMessage = "모의 안내 거부 · ${result.reason}", navigationConfirmed = false)
-            NavigationResult.Unavailable -> _state.value.copy(navigationMessage = "모의 안내를 사용할 수 없습니다. 운전자가 목적지를 확인하세요.", navigationConfirmed = false)
+            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 탐색 완료 콜백 확인 · ${point.label}" else "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
+            is NavigationResult.Rejected -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 요청 실패 · ${result.reason}" else "모의 안내 거부 · ${result.reason}", navigationConfirmed = false)
+            NavigationResult.Unavailable -> _state.value.copy(navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 서비스를 사용할 수 없습니다. 연결 상태와 권한을 확인하세요." else "모의 안내를 사용할 수 없습니다. 운전자가 목적지를 확인하세요.", navigationConfirmed = false)
         }
     }
 
@@ -283,6 +287,14 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun driverAction(action: suspend () -> Unit) = viewModelScope.launch { launchBusy(action) }
+
+    override fun onCleared() {
+        pollJob?.cancel()
+        healthJob?.cancel()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { navigation.close() }
+        super.onCleared()
+    }
+
     private fun requireSession() = checkNotNull(_state.value.session) { "이동 정보를 먼저 불러와 주세요." }
     private fun requireCredentials() = checkNotNull(_state.value.credentials) { "차량 인증 정보가 없습니다." }
     private fun ensureParked() = check(driving.state(_state.value.simulatedParked) == DrivingState.PARKED) { "정차 상태(시연)를 먼저 확인해 주세요." }

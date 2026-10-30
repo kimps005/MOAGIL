@@ -13,6 +13,7 @@ sealed interface NavigationResult {
 interface NavigationPort {
     suspend fun navigateTo(point: Point): NavigationResult
     suspend fun close()
+    fun failNextRequest(): Boolean = false
 }
 
 interface DrivingStatePort { fun state(simulatedParked: Boolean): DrivingState }
@@ -20,7 +21,7 @@ interface DrivingStatePort { fun state(simulatedParked: Boolean): DrivingState }
 class MockNavigationPort : NavigationPort {
     private var failNext = false
 
-    fun failNextRequest() { failNext = true }
+    override fun failNextRequest(): Boolean { failNext = true; return true }
 
     override suspend fun navigateTo(point: Point): NavigationResult {
         delay(500)

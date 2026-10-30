@@ -102,6 +102,12 @@ async function main() {
   try {
     await page.goto(baseUrl + '/?capture=1', { waitUntil: 'networkidle' });
     assert((await page.title()).includes('모아길'), '차량 시작 화면이 열리지 않았습니다.');
+    if (record) {
+      const configResponse = await page.request.get(baseUrl + '/api/config');
+      assert(configResponse.ok(), '경로 제공자 설정을 확인하지 못했습니다.');
+      const config = await configResponse.json();
+      assert(['osrm', 'naver'].includes(config.routingProvider), '실제 도로 경로 제공자(OSRM 또는 NAVER)를 사용해 서버를 시작한 뒤 영상을 촬영하세요.');
+    }
     await waitScene(page, '여러 목적지, 순서는 한 번에. · 모아길 시연 프로토타입', record ? 9000 : quickWait);
 
     await page.locator('[data-action="new"]').first().click();
@@ -150,14 +156,14 @@ async function main() {
     await page.locator('[data-action="demo"]').click();
     await page.locator('.passenger-row').filter({ hasText: '동승자 D' }).waitFor({ state: 'visible' });
     if (!record) await verifyVersionConflict(context, page);
-    await waitScene(page, '시연 데이터로 네 명의 목적지를 불러옵니다. 좌표는 예시 데이터이고 실제 도로가 아닙니다.', record ? 8000 : quickWait);
+    await waitScene(page, '예시 승객 네 명의 목적지를 불러옵니다. 지도와 차량 경로는 실제 도로 데이터를 사용합니다.', record ? 8000 : quickWait);
 
     await page.locator('.park-toggle').click();
     const allOrdersResponse = waitResponse(page, '/plan');
     await page.locator('[data-action="plan"]').click();
     assert((await allOrdersResponse).ok(), '전체 순서 비교가 실패했습니다.');
     await page.getByText(/24\s*가지 순서 비교/).waitFor({ state: 'visible' });
-    await waitScene(page, '동승자 네 명의 순서를 모두 비교합니다. 최대 4! = 24가지이며 전부 시연용 추정입니다.', record ? 9000 : quickWait);
+    await waitScene(page, '네 명의 하차 순서를 실제 차량 도로망으로 비교합니다. 가능한 경우는 최대 4! = 24가지입니다.', record ? 9000 : quickWait);
 
     const settingResponse = waitResponse(page, '/settings');
     await page.locator('#priority').selectOption({ label: '동승자 B' });
@@ -169,7 +175,7 @@ async function main() {
     await page.locator('[data-action="plan"]').click();
     assert((await planResponse).ok(), '경로 순서 계산이 실패했습니다.');
     await page.getByText(/6\s*가지 순서 비교/).waitFor({ state: 'visible' });
-    await waitScene(page, 'B가 첫 번째인 여섯 가지 순서를 비교했습니다. 추천 시간은 모의 직선거리 추정입니다.', record ? 10000 : quickWait);
+    await waitScene(page, 'B를 먼저 내릴 승객으로 지정해 나머지 여섯 가지 실제 도로 경로를 비교했습니다.', record ? 10000 : quickWait);
 
     const moveResponse = waitResponse(page, '/select-order');
     await page.locator('.order-item').filter({ hasText: '동승자 D' }).locator('[data-action="move"][data-delta="-1"]').click();
