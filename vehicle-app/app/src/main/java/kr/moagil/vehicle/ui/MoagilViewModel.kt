@@ -34,6 +34,8 @@ data class DriverUiState(
     val connected: Boolean? = null,
     val simulatedParked: Boolean = false,
     val busy: Boolean = false,
+    val autoPlanning: Boolean = false,
+    val autoPlanError: String? = null,
     val finalEnabled: Boolean = false,
     val finalLat: String = "37.510000",
     val finalLon: String = "126.950000",
@@ -53,6 +55,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     val state: StateFlow<DriverUiState> = _state.asStateFlow()
     private var pollJob: Job? = null
     private var healthJob: Job? = null
+    private var autoPlanJob: Job? = null
+    private var autoPlanAttemptKey: String? = null
 
     init {
         healthJob = viewModelScope.launch {
@@ -70,7 +74,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                     .onSuccess { session -> acceptSession(session, "저장된 이동 정보를 다시 연결했습니다.") }
                     .onFailure { error -> report(error) }
                 startPolling(credentials)
-            }
+            } ?: createSession(false)
         }
     }
 
@@ -86,6 +90,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun createSession(demo: Boolean) = driverAction {
+        autoPlanJob?.cancel()
+        autoPlanAttemptKey = null
         val baseUrl = _state.value.apiBaseUrl.trim().trimEnd('/')
         require(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) { "서버 주소는 http:// 또는 https://로 시작해야 합니다." }
         val (credentials, demoSession) = MoagilApi(baseUrl).createSession(demo)
@@ -130,6 +136,13 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         val updated = MoagilApi(requireCredentials().apiBaseUrl).plan(requireCredentials(), session)
         val routeNote = updated.route?.note ?: "경로 결과를 확인하지 못했습니다."
         acceptSession(updated, "${updated.route?.evaluatedCount ?: 0}개 순서를 비교했습니다. $routeNote")
+    }
+
+    fun recalculate() {
+        val session = _state.value.session ?: return
+        autoPlanAttemptKey = null
+        autoPlanJob?.cancel()
+        scheduleAutoPlan(session, force = true)
     }
 
     fun movePassenger(passengerId: String, delta: Int) = driverAction {
@@ -281,13 +294,13 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     private fun startPolling(credentials: DriverCredentials) {
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
-            var delayMs = 2_000L
+            var delayMs = 1_000L
             while (isActive && _state.value.credentials?.sessionId == credentials.sessionId && _state.value.session?.state != "COMPLETED" && _state.value.session?.state != "CANCELLED" && _state.value.session?.state != "EXPIRED") {
                 try {
                     val snapshot = MoagilApi(credentials.apiBaseUrl).snapshot(credentials)
                     _state.value = _state.value.copy(connected = true)
                     acceptSession(snapshot, null)
-                    delayMs = 2_000L
+                    delayMs = 1_000L
                     delay(delayMs)
                 } catch (error: Exception) {
                     _state.value = _state.value.copy(connected = false)
@@ -317,6 +330,36 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             errorMessage = null,
             notice = notice ?: _state.value.notice,
         )
+        if (session.state in setOf("COLLECTING", "PLANNED") && session.passengers.isNotEmpty() && session.route == null) {
+            scheduleAutoPlan(session)
+        } else if (session.route != null) {
+            _state.value = _state.value.copy(autoPlanError = null)
+        }
+    }
+
+    private fun scheduleAutoPlan(session: DriverSession, force: Boolean = false) {
+        val credentials = _state.value.credentials ?: return
+        val attemptKey = "${session.sessionId}:${session.version}"
+        if (autoPlanJob?.isActive == true) return
+        if (!force && autoPlanAttemptKey == attemptKey) return
+        autoPlanAttemptKey = attemptKey
+        autoPlanJob = viewModelScope.launch {
+            _state.value = _state.value.copy(autoPlanning = true, autoPlanError = null)
+            try {
+                val updated = MoagilApi(credentials.apiBaseUrl).plan(credentials, session)
+                val latest = _state.value.session
+                if (_state.value.credentials?.sessionId == session.sessionId && (latest == null || updated.version >= latest.version)) {
+                    acceptSession(updated, null)
+                }
+            } catch (error: Exception) {
+                val latest = _state.value.session
+                if (latest?.sessionId == session.sessionId && latest.version == session.version) {
+                    _state.value = _state.value.copy(autoPlanError = error.message ?: "추천 경로 계산에 실패했습니다.")
+                }
+            } finally {
+                _state.value = _state.value.copy(autoPlanning = false)
+            }
+        }
     }
 
     private suspend fun launchBusy(action: suspend () -> Unit) {

@@ -2,10 +2,13 @@ package kr.moagil.vehicle
 
 import android.graphics.Color as AndroidColor
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,12 +18,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -38,7 +43,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,15 +54,20 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -77,33 +88,48 @@ import kr.moagil.vehicle.data.Passenger
 import kr.moagil.vehicle.data.Point
 import kr.moagil.vehicle.ui.DriverUiState
 import kr.moagil.vehicle.ui.MoagilViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import kotlin.math.PI
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.sin
 
-private val Ink = Color(0xFF101820)
-private val Panel = Color(0xFF192630)
-private val PanelRaised = Color(0xFF22333E)
-private val Mint = Color(0xFF75E1CF)
-private val Muted = Color(0xFF9AABB4)
-private val Alert = Color(0xFFFF9F84)
-private val Scheme = darkColorScheme(
+private val Ink = Color(0xFFF6F8F7)
+private val Panel = Color.White
+private val PanelRaised = Color(0xFFF0F5F2)
+private val Mint = Color(0xFF167B6E)
+private val Muted = Color(0xFF65766F)
+private val Alert = Color(0xFFAD493F)
+private val Scheme = lightColorScheme(
     primary = Mint,
-    onPrimary = Ink,
-    secondary = Color(0xFFB8D4DF),
+    onPrimary = Color.White,
+    secondary = Color(0xFF4D6A61),
     background = Ink,
-    onBackground = Color(0xFFF3F7F7),
+    onBackground = Color(0xFF183B32),
     surface = Panel,
-    onSurface = Color(0xFFF3F7F7),
+    onSurface = Color(0xFF203B33),
     error = Alert,
 )
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.rgb(16, 24, 32)
-        window.navigationBarColor = android.graphics.Color.rgb(16, 24, 32)
+        window.statusBarColor = android.graphics.Color.rgb(246, 248, 247)
+        window.navigationBarColor = android.graphics.Color.rgb(246, 248, 247)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         setContent {
             MaterialTheme(colorScheme = Scheme) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -119,8 +145,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     var pendingDelete by remember { mutableStateOf<Passenger?>(null) }
-    var showDisconnect by remember { mutableStateOf(false) }
     var showFinish by remember { mutableStateOf(false) }
+    var showNewSession by remember { mutableStateOf(false) }
     if (state.cancelConfirmation) {
         AlertDialog(
             onDismissRequest = { model.setCancelConfirmation(false) },
@@ -139,15 +165,6 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("취소") } },
         )
     }
-    if (showDisconnect) {
-        AlertDialog(
-            onDismissRequest = { showDisconnect = false },
-            title = { Text("이 기기 연결을 해제할까요?") },
-            text = { Text("기기에 저장된 차량 토큰을 지웁니다. 서버의 이동 상태는 바뀌지 않습니다.") },
-            confirmButton = { TextButton(onClick = { showDisconnect = false; model.disconnectLocal() }) { Text("기기에서 지우기") } },
-            dismissButton = { TextButton(onClick = { showDisconnect = false }) { Text("취소") } },
-        )
-    }
     if (showFinish) {
         AlertDialog(
             onDismissRequest = { showFinish = false },
@@ -157,23 +174,73 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
             dismissButton = { TextButton(onClick = { showFinish = false }) { Text("계속 진행") } },
         )
     }
+    if (showNewSession) {
+        AlertDialog(
+            onDismissRequest = { showNewSession = false },
+            title = { Text("새 이동을 만들까요?") },
+            text = { Text("이 기기의 QR을 새 이동으로 바꿉니다. 이전 이동은 서버에 남지만 이 기기에서는 다시 열 수 없습니다.") },
+            confirmButton = {
+                TextButton(onClick = { showNewSession = false; model.createSession(false) }) { Text("새 이동 만들기") }
+            },
+            dismissButton = { TextButton(onClick = { showNewSession = false }) { Text("취소") } },
+        )
+    }
 
-    Column(Modifier.fillMaxSize().background(Ink)) {
-        Header(state, model, onDisconnect = { showDisconnect = true })
-        Divider(color = Color(0xFF2D3B44))
-        if (state.session == null) {
-            StartPanel(state, model, Modifier.weight(1f))
-        } else {
+    val waitingForPassengers = state.session?.let { it.state == "COLLECTING" && it.passengers.isEmpty() } == true
+    if (state.session == null || waitingForPassengers) {
+        QrFirstScreen(state, model)
+    } else {
+        Column(Modifier.fillMaxSize().background(Ink)) {
+            Header(state, onNewSession = { showNewSession = true })
+            Divider(color = Color(0xFFE2EAE6))
             SessionDashboard(state, model, onDelete = { pendingDelete = it }, onFinish = { showFinish = true }, modifier = Modifier.weight(1f))
+            state.errorMessage?.let { MessageBanner(it, Alert, onDismiss = model::clearMessages) }
+            state.notice?.let { MessageBanner(it, Mint, onDismiss = model::clearMessages) }
+            Footer()
         }
-        state.errorMessage?.let { MessageBanner(it, Alert, onDismiss = model::clearMessages) }
-        state.notice?.let { MessageBanner(it, Mint, onDismiss = model::clearMessages) }
-        Footer()
     }
 }
 
 @Composable
-private fun Header(state: DriverUiState, model: MoagilViewModel, onDisconnect: () -> Unit) {
+private fun QrFirstScreen(state: DriverUiState, model: MoagilViewModel) {
+    val session = state.session
+    val credentials = state.credentials
+    val inviteUrl = remember(session?.sessionId, credentials?.joinBaseUrl, credentials?.inviteToken) {
+        if (session == null || credentials == null) "" else "${credentials.joinBaseUrl.trimEnd('/')}/join/${session.sessionId}?invite=${credentials.inviteToken}"
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        val qrSize = if (maxWidth > 900.dp) 440.dp else 280.dp
+        Column(
+            Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("MOAGIL", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+            if (inviteUrl.isNotBlank()) {
+                val qr = remember(inviteUrl) { renderQr(inviteUrl) }
+                if (qr != null) {
+                    Image(
+                        qr.asImageBitmap(),
+                        contentDescription = "동승자 초대 QR 코드",
+                        modifier = Modifier.size(qrSize).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp),
+                    )
+                } else {
+                    Box(Modifier.size(qrSize), contentAlignment = Alignment.Center) { Text("QR을 만들 수 없습니다.", color = Alert) }
+                }
+                Text("QR을 스캔해 내릴 곳을 등록하세요", color = Color(0xFF183B32), fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Text("등록 즉시 추천 순서를 계산합니다 · ${session?.passengers?.size ?: 0} / 4명", color = Muted, fontSize = 14.sp)
+            } else {
+                CircularProgressIndicator(color = Mint, modifier = Modifier.padding(20.dp))
+                Text(if (state.busy) "초대 QR을 준비하고 있어요" else "서버 연결을 확인하고 있어요", color = Color(0xFF183B32), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                state.errorMessage?.let { Text(it, color = Alert, fontSize = 13.sp) }
+                if (!state.busy) Button(onClick = { model.createSession(false) }) { Text("다시 연결") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(state: DriverUiState, onNewSession: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -196,9 +263,9 @@ private fun Header(state: DriverUiState, model: MoagilViewModel, onDisconnect: (
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Badge(if (state.connected == true) "서버 연결" else if (state.connected == false) "연결 끊김" else "연결 확인 중", if (state.connected == true) Mint else Alert)
-            state.credentials?.let {
+            if (state.session != null) {
                 Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onDisconnect) { Text("기기 연결 해제", color = Muted) }
+                TextButton(onClick = onNewSession, enabled = !state.busy) { Text("새 이동", color = Muted) }
             }
         }
     }
@@ -266,71 +333,98 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
     val terminal = session.state in setOf("COMPLETED", "CANCELLED", "EXPIRED")
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val wide = maxWidth > 900.dp
-        LazyColumn(
-            Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 15.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            item { SafetyCard(state, model) }
-            item { RealRoadMapCard(session) }
-            if (wide) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        InviteCard(session, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), Modifier.weight(0.9f))
-                        PassengerCard(session, state, model, onDelete, Modifier.weight(1.5f))
-                    }
-                }
-                item { RouteSettingsCard(session, state, model) }
-            } else {
-                item { InviteCard(session, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), Modifier.fillMaxWidth()) }
-                item { PassengerCard(session, state, model, onDelete, Modifier.fillMaxWidth()) }
-                item { RouteSettingsCard(session, state, model) }
+        if (wide) {
+            Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                RealRoadMapCard(session, Modifier.weight(1.55f).fillMaxHeight())
+                SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, terminal, Modifier.weight(1f).fillMaxHeight())
             }
-            if (session.route != null && session.state in setOf("PLANNED", "ACTIVE")) {
-                item { OrderCard(session, state, model) }
-            }
-            if (session.state == "ACTIVE") { item { ActiveCard(session, state, model, onFinish) } }
-            if (terminal) {
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(if (session.state == "COMPLETED") "이동 완료" else "이동 종료", fontWeight = FontWeight.Bold, fontSize = 21.sp)
-                            Text("참가 링크가 닫혔습니다. 새 시연은 별도 이동으로 시작합니다.", color = Muted)
-                            Button(onClick = { model.createSession(false) }, enabled = !state.busy) { Text("새 이동 만들기") }
-                        }
-                    }
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("세션 ${session.sessionId.take(8)} · 버전 ${session.version} · 만료 ${formatTime(session.expiresAt)}", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (!terminal && session.state != "ACTIVE") OutlinedButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소") }
-                }
+        } else {
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item { RealRoadMapCard(session, Modifier.fillMaxWidth().height(360.dp)) }
+                sessionDetailItems(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, terminal)
             }
         }
     }
 }
 
 @Composable
-private fun RealRoadMapCard(session: DriverSession) {
-    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            SectionTitle("네이버 실제 도로 지도", session.route?.let { "${it.note} · ${it.dataSource}" } ?: "하차 위치와 계산된 도로 경로")
-            if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) {
-                Box(
-                    Modifier.fillMaxWidth().height(230.dp).background(PanelRaised, RoundedCornerShape(14.dp)).padding(20.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("네이버 Client ID를 설정하면 실제 지도가 표시됩니다.\nvehicle-app/local.properties에 naver.map.clientId를 추가해 주세요.", color = Muted, fontSize = 13.sp)
+private fun SessionDetailsColumn(
+    session: DriverSession,
+    state: DriverUiState,
+    model: MoagilViewModel,
+    joinBaseUrl: String,
+    inviteToken: String,
+    onDelete: (Passenger) -> Unit,
+    onFinish: () -> Unit,
+    terminal: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        sessionDetailItems(session, state, model, joinBaseUrl, inviteToken, onDelete, onFinish, terminal)
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.sessionDetailItems(
+    session: DriverSession,
+    state: DriverUiState,
+    model: MoagilViewModel,
+    joinBaseUrl: String,
+    inviteToken: String,
+    onDelete: (Passenger) -> Unit,
+    onFinish: () -> Unit,
+    terminal: Boolean,
+) {
+    item { InviteCard(session, joinBaseUrl, inviteToken) }
+    item { PassengerCard(session, state, model, onDelete, Modifier.fillMaxWidth()) }
+    if (session.route != null && session.state in setOf("PLANNED", "ACTIVE")) {
+        item { OrderCard(session, state, model) }
+    } else if (session.passengers.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
+        item { RouteCalculationCard(state, model) }
+    }
+    item { SafetyCard(state, model) }
+    if (session.state in setOf("COLLECTING", "PLANNED")) item { RouteSettingsCard(session, state, model) }
+    if (session.state == "ACTIVE") item { ActiveCard(session, state, model, onFinish) }
+    if (terminal) {
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (session.state == "COMPLETED") "이동 완료" else "이동 종료", fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                    Text("참가 링크가 닫혔습니다. 새 시연은 별도 이동으로 시작합니다.", color = Muted)
+                    Button(onClick = { model.createSession(false) }, enabled = !state.busy) { Text("새 이동 만들기") }
                 }
-            } else {
-                NaverRoadMapView(session, Modifier.fillMaxWidth().height(320.dp))
             }
-            Text(
-                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "순서 비교는 서버의 ${session.route?.dataSource ?: "도로 경로 제공자"} 기준입니다. 선택된 목적지는 Pleos 내비로 전송하며, 차량 센서·정차 상태는 시연값입니다."
-                else "추천 경로는 실제 도로망을 따릅니다. 차량 위치·회전별 음성 안내·Pleos 내비는 연결되지 않았습니다.",
-                color = Muted,
-                fontSize = 11.sp,
-            )
+        }
+    }
+    item {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("세션 ${session.sessionId.take(8)} · 버전 ${session.version} · 만료 ${formatTime(session.expiresAt)}", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!terminal && session.state != "ACTIVE") OutlinedButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소") }
+        }
+    }
+}
+
+@Composable
+private fun RouteCalculationCard(state: DriverUiState, model: MoagilViewModel) {
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (state.autoPlanning) "추천 하차 순서를 계산하고 있어요" else "추천 순서 계산 대기", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(state.autoPlanError ?: "위치가 등록될 때마다 가능한 순서를 자동으로 비교합니다.", color = Muted, fontSize = 13.sp)
+            if (!state.autoPlanning) OutlinedButton(onClick = model::recalculate) { Text("다시 계산") }
+        }
+    }
+}
+
+@Composable
+private fun RealRoadMapCard(session: DriverSession, modifier: Modifier = Modifier) {
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionTitle(if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) "실제 도로 지도" else "네이버 지도", session.route?.let { "${it.note} · ${it.dataSource}" } ?: "하차 위치와 계산 경로")
+            if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) {
+                OsmStreetMapView(session, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(14.dp)))
+            } else {
+                NaverRoadMapView(session, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(14.dp)))
+            }
+            Text("추천 순서: ${session.route?.let { it.dataSource + " 도로망" } ?: "계산 중"} · © OpenStreetMap contributors", color = Muted, fontSize = 10.sp)
         }
     }
 }
@@ -430,11 +524,136 @@ private fun NaverRoadMapView(session: DriverSession, modifier: Modifier = Modifi
 }
 
 @Composable
+private fun OsmStreetMapView(session: DriverSession, modifier: Modifier = Modifier) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val markers = remember(session.sessionId, session.version) {
+        buildList {
+            add(MapMarker(session.startPoint, true))
+            val people = session.passengers.associateBy(Passenger::id)
+            val order = session.selectedOrder.ifEmpty { session.route?.order.orEmpty() }
+            order.forEach { id -> people[id]?.let { add(MapMarker(it.point)) } }
+            session.passengers.filter { it.id !in order }.forEach { add(MapMarker(it.point)) }
+            session.finalPoint?.let { add(MapMarker(it)) }
+        }
+    }
+    val routePoints = remember(session.sessionId, session.version) { session.route?.geometry.orEmpty() }
+    val allPoints = remember(markers, routePoints) { markers.map(MapMarker::point) + routePoints }
+    BoxWithConstraints(modifier.background(Color(0xFFEAF0ED)), contentAlignment = Alignment.Center) {
+        val widthPx = with(density) { maxWidth.roundToPx().coerceAtLeast(1) }
+        val heightPx = with(density) { maxHeight.roundToPx().coerceAtLeast(1) }
+        val zoom = remember(allPoints, widthPx, heightPx) { fittingZoom(allPoints, widthPx, heightPx) }
+        val worldPoints = remember(allPoints, zoom) { allPoints.map { worldPoint(it, zoom) } }
+        val centerX = (worldPoints.minOfOrNull(WorldPoint::x) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::x) ?: 0.0) / 2.0
+        val centerY = (worldPoints.minOfOrNull(WorldPoint::y) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::y) ?: 0.0) / 2.0
+        val originX = centerX - widthPx / 2.0
+        val originY = centerY - heightPx / 2.0
+        val tileRequests = remember(zoom, widthPx, heightPx, centerX, centerY) {
+            mapTileRequests(zoom, originX, originY, widthPx, heightPx)
+        }
+        val loadedTiles by produceState<List<OsmTile>?>(null, tileRequests) {
+            value = OsmTileLoader.load(tileRequests)
+        }
+        Canvas(Modifier.fillMaxSize()) {
+            loadedTiles.orEmpty().forEach { tile ->
+                drawImage(tile.image, dstOffset = IntOffset(tile.left, tile.top), dstSize = IntSize(256, 256))
+            }
+            if (routePoints.size > 1) {
+                val route = routePoints.map { worldPoint(it, zoom) }
+                val step = (route.size / 400).coerceAtLeast(1)
+                val simplified = route.filterIndexed { index, _ -> index % step == 0 || index == route.lastIndex }
+                simplified.zipWithNext().forEach { (a, b) ->
+                    drawLine(Mint, Offset((a.x - originX).toFloat(), (a.y - originY).toFloat()), Offset((b.x - originX).toFloat(), (b.y - originY).toFloat()), strokeWidth = 7.dp.toPx())
+                }
+            }
+            markers.forEachIndexed { index, marker ->
+                val point = worldPoint(marker.point, zoom)
+                val center = Offset((point.x - originX).toFloat(), (point.y - originY).toFloat())
+                drawCircle(if (marker.isStart) Color(0xFF31546B) else Mint, radius = if (marker.isStart) 12.dp.toPx() else 10.dp.toPx(), center = center)
+                drawCircle(Color.White, radius = if (marker.isStart) 12.dp.toPx() else 10.dp.toPx(), center = center, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+        when {
+            loadedTiles == null -> CircularProgressIndicator(color = Mint)
+            loadedTiles.isNullOrEmpty() -> Text("지도 타일을 불러오지 못했습니다.", color = Muted)
+        }
+    }
+}
+
+private data class MapMarker(val point: Point, val isStart: Boolean = false)
+private data class WorldPoint(val x: Double, val y: Double)
+private data class TileRequest(val zoom: Int, val x: Int, val y: Int, val left: Int, val top: Int)
+private data class OsmTile(val left: Int, val top: Int, val image: androidx.compose.ui.graphics.ImageBitmap)
+
+private fun worldPoint(point: Point, zoom: Int): WorldPoint {
+    val scale = 256.0 * (1 shl zoom)
+    val latitude = point.lat.coerceIn(-85.0511, 85.0511) * PI / 180.0
+    val x = (point.lon + 180.0) / 360.0 * scale
+    val y = (0.5 - ln((1.0 + sin(latitude)) / (1.0 - sin(latitude))) / (4.0 * PI)) * scale
+    return WorldPoint(x, y)
+}
+
+private fun fittingZoom(points: List<Point>, width: Int, height: Int): Int {
+    if (points.size < 2) return 12
+    for (zoom in 16 downTo 6) {
+        val projected = points.map { worldPoint(it, zoom) }
+        val spanX = (projected.maxOf(WorldPoint::x) - projected.minOf(WorldPoint::x)) * .5
+        val spanY = (projected.maxOf(WorldPoint::y) - projected.minOf(WorldPoint::y)) * .5
+        if (spanX <= width * .38 && spanY <= height * .38) return zoom
+    }
+    return 6
+}
+
+private fun mapTileRequests(zoom: Int, originX: Double, originY: Double, width: Int, height: Int): List<TileRequest> {
+    val tileCount = 1 shl zoom
+    val firstX = floor(originX / 256.0).toInt()
+    val firstY = floor(originY / 256.0).toInt()
+    val lastX = floor((originX + width) / 256.0).toInt()
+    val lastY = floor((originY + height) / 256.0).toInt()
+    return buildList {
+        for (tileY in firstY..lastY) {
+            if (tileY !in 0 until tileCount) continue
+            for (tileX in firstX..lastX) {
+                val wrappedX = ((tileX % tileCount) + tileCount) % tileCount
+                add(TileRequest(zoom, wrappedX, tileY, (tileX * 256 - originX).toInt(), (tileY * 256 - originY).toInt()))
+            }
+        }
+    }
+}
+
+private object OsmTileLoader {
+    private val client = OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).readTimeout(6, TimeUnit.SECONDS).build()
+    private val cache = ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
+
+    suspend fun load(requests: List<TileRequest>): List<OsmTile> = coroutineScope {
+        requests.chunked(4).flatMap { batch ->
+            batch.map { request -> async(Dispatchers.IO) { loadOne(request) } }.awaitAll().filterNotNull()
+        }
+    }
+
+    private fun loadOne(request: TileRequest): OsmTile? = runCatching {
+        val key = "${request.zoom}/${request.x}/${request.y}"
+        val image = cache[key] ?: run {
+            val httpRequest = Request.Builder()
+                .url("https://tile.openstreetmap.org/${request.zoom}/${request.x}/${request.y}.png")
+                .header("User-Agent", "MOAGIL-Android-Prototype/1.0")
+                .build()
+            client.newCall(httpRequest).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val bytes = response.body?.bytes() ?: return null
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+                bitmap.asImageBitmap().also { cache[key] = it }
+            }
+        }
+        OsmTile(request.left, request.top, image)
+    }.getOrNull()
+}
+
+@Composable
 private fun SafetyCard(state: DriverUiState, model: MoagilViewModel) {
-    Card(colors = CardDefaults.cardColors(containerColor = if (state.simulatedParked) Color(0xFF153A39) else PanelRaised), shape = RoundedCornerShape(18.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = if (state.simulatedParked) Color(0xFFEAF6F1) else PanelRaised), shape = RoundedCornerShape(18.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if (state.simulatedParked) "정차(시연) 상태" else "정차 상태 확인 필요", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (state.simulatedParked) Mint else Color(0xFFFFD18D))
+                Text(if (state.simulatedParked) "정차(시연) 상태" else "정차 상태 확인 필요", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (state.simulatedParked) Mint else Color(0xFF98631D))
                 Text("모의 토글 · 차량 센서 판정이 아닙니다", color = Muted, fontSize = 12.sp)
             }
             Text("운전자 입력", color = Muted, fontSize = 13.sp)
@@ -494,34 +713,35 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
 @Composable
 private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
     val enabled = state.simulatedParked && !state.busy && session.state in setOf("COLLECTING", "PLANNED")
+    var expanded by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionTitle("경로 조건", if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "서버가 순서를 비교하고 Pleos 내비에 목적지를 요청" else "출발지와 최종 목적지를 포함해 모의 비교")
-            Text("출발지 · ${session.startPoint.label} · ${"%.4f".format(Locale.US, session.startPoint.lat)}, ${"%.4f".format(Locale.US, session.startPoint.lon)}", color = Muted)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("운전자 최종 목적지", fontWeight = FontWeight.SemiBold)
-                    Text("미선택이면 마지막 승객 하차 후 종료", color = Muted, fontSize = 12.sp)
+                    SectionTitle("경로 설정", "선택 사항 · 현재 위치 등록만으로 자동 계산")
                 }
-                Switch(checked = state.finalEnabled, onCheckedChange = { model.setFinalDestination(it) }, enabled = enabled)
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "접기" else "열기") }
             }
-            if (state.finalEnabled) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(state.finalLat, model::setFinalLat, Modifier.weight(1f), label = { Text("위도") }, singleLine = true)
-                    OutlinedTextField(state.finalLon, model::setFinalLon, Modifier.weight(1f), label = { Text("경도") }, singleLine = true)
-                    Button(onClick = { model.setFinalDestination(true) }, enabled = enabled, modifier = Modifier.align(Alignment.CenterVertically)) { Text("좌표 저장") }
+            if (expanded) {
+                Text("출발지 · ${session.startPoint.label} · ${"%.4f".format(Locale.US, session.startPoint.lat)}, ${"%.4f".format(Locale.US, session.startPoint.lon)}", color = Muted)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("운전자 최종 목적지", fontWeight = FontWeight.SemiBold)
+                        Text("미선택이면 마지막 승객 하차 후 종료", color = Muted, fontSize = 12.sp)
+                    }
+                    Switch(checked = state.finalEnabled, onCheckedChange = { model.setFinalDestination(it) }, enabled = enabled)
                 }
-                Text("오프라인 좌표 입력 · 실제 주소 검색과 도로 지도는 제공하지 않습니다.", color = Muted, fontSize = 12.sp)
+                if (state.finalEnabled) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(state.finalLat, model::setFinalLat, Modifier.weight(1f), label = { Text("위도") }, singleLine = true)
+                        OutlinedTextField(state.finalLon, model::setFinalLon, Modifier.weight(1f), label = { Text("경도") }, singleLine = true)
+                        Button(onClick = { model.setFinalDestination(true) }, enabled = enabled, modifier = Modifier.align(Alignment.CenterVertically)) { Text("저장") }
+                    }
+                    Text("좌표로 지정하는 시연용 목적지입니다.", color = Muted, fontSize = 12.sp)
+                }
+                PriorityPicker(session, state, model, enabled)
+                if (!state.simulatedParked) Text("선택 사항 변경은 정차 확인 후 할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
             }
-            PriorityPicker(session, state, model, enabled)
-            Button(
-                onClick = { model.plan() },
-                enabled = enabled && session.passengers.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-            ) {
-                Text(if (state.busy) "계산 중…" else "가능한 순서 계산", fontWeight = FontWeight.Bold)
-            }
-            if (!state.simulatedParked) Text("정차 확인 전에는 설정 변경과 계산을 잠급니다.", color = Color(0xFFFFD18D), fontSize = 12.sp)
         }
     }
 }
@@ -587,7 +807,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                 ) {
                     Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서 확정 · Pleos 내비 전송" else "경로 확정 · 모의 안내", fontWeight = FontWeight.Bold)
                 }
-                if (!state.simulatedParked) Text("정차 확인 전에는 확정할 수 없습니다.", color = Color(0xFFFFD18D), fontSize = 12.sp)
+                if (!state.simulatedParked) Text("정차 확인 후 내비로 전송할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
             }
         }
     }
@@ -598,11 +818,11 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
     val passenger = session.selectedOrder.getOrNull(session.activeIndex)?.let { id -> session.passengers.firstOrNull { it.id == id } }
     val finalLeg = passenger == null && session.finalPoint != null
     val readyToFinish = passenger == null && session.finalPoint == null
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF123A3B)), shape = RoundedCornerShape(18.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF6F1)), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos NaviHelper 내비 안내" else "모의 내비 안내 · 실제 차량 내비 연결 없음", color = Mint, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text(state.navigationMessage.ifBlank { "앱이 다시 연결됐습니다. 현재 목적지를 운전자가 확인해 주세요." }, color = Color(0xFFD9EBE8))
-            Divider(color = Color(0xFF315655))
+            Text(state.navigationMessage.ifBlank { "앱이 다시 연결됐습니다. 현재 목적지를 운전자가 확인해 주세요." }, color = Color(0xFF42564D))
+            Divider(color = Color(0xFFD2E8DE))
             Text("${session.selectedOrder.size - session.activeIndex}명 남음", color = Muted, fontSize = 12.sp)
             Text(
                 when {
@@ -628,7 +848,7 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
                 readyToFinish -> Button(onClick = onFinish, enabled = state.simulatedParked && state.navigationConfirmed && !state.busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("이동 종료 · 시연") }
             }
             TextButton(onClick = { model.setCancelConfirmation(true) }, enabled = state.simulatedParked && !state.busy) { Text("이동 취소", color = Alert) }
-            if (!state.simulatedParked) Text("정차(시연) 확인 전에는 하차 완료와 종료를 잠급니다.", color = Color(0xFFFFD18D), fontSize = 12.sp)
+            if (!state.simulatedParked) Text("정차(시연) 확인 전에는 하차 완료와 종료를 잠급니다.", color = Color(0xFF98631D), fontSize = 12.sp)
         }
     }
 }
@@ -652,7 +872,7 @@ private fun Badge(label: String, color: Color) {
 
 @Composable
 private fun SafetyNote(text: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF20313B)), shape = RoundedCornerShape(14.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = PanelRaised), shape = RoundedCornerShape(14.dp)) {
         Text(text, Modifier.fillMaxWidth().padding(15.dp), color = Muted, fontSize = 13.sp)
     }
 }
