@@ -424,6 +424,10 @@ body.passenger-body {
 .passenger-heading h1 { margin: 0; color: #202636; font-size: 27px; line-height: 1.2; letter-spacing: -.055em; }
 .passenger-heading p { color: #737c8f; }
 .destination-card { padding: 14px; border-radius: 24px; }
+.avatar-picker { display: flex; gap: 7px; overflow-x: auto; margin: 0 0 12px; padding: 2px 1px 7px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.avatar-picker::-webkit-scrollbar { display: none; }
+.emoji-option { flex: 0 0 38px; width: 38px; height: 38px; padding: 0; border: 1px solid rgba(110,123,160,.12); border-radius: 50%; color: #273149; background: rgba(255,255,255,.76); font-size: 20px; box-shadow: 0 2px 6px rgba(45,55,85,.04); }
+.emoji-option.selected { border-color: #7185f2; background: #edf0ff; box-shadow: 0 0 0 3px rgba(100,124,242,.13); }
 #display-name {
   display: block;
   width: 100%;

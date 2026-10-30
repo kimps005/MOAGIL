@@ -30,6 +30,14 @@ const state = {
   autoPlanError: '',
   mapProvider: 'osm',
   routingProvider: 'osrm',
+  avatarEmoji: '🚗',
+};
+
+const JOIN_EMOJIS = ['🚗', '🚕', '🚙', '🚌', '🚲', '🐱', '🐶', '🐼', '🐰', '🦊', '🌸', '⭐'];
+const passengerEmoji = displayName => JOIN_EMOJIS.find(emoji => String(displayName || '').startsWith(emoji + ' ')) || '';
+const passengerName = displayName => {
+  const emoji = passengerEmoji(displayName);
+  return emoji ? String(displayName).slice(emoji.length).trim() : String(displayName || '');
 };
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
@@ -134,14 +142,14 @@ async function getMapAdapter() {
 function passengerRows() {
   const people = state.session?.passengers || [];
   if (!people.length) return '<div class="empty-list">아직 등록된 동승자가 없습니다.<br>QR을 공유하고 각자의 하차 위치를 받아보세요.</div>';
-  return '<div class="passenger-list">' + people.map((person, index) => '<div class="passenger-row"><div class="avatar">' + String.fromCharCode(65 + index) + '</div><div class="passenger-main"><div class="passenger-name">' + esc(person.displayName) + '</div><div class="passenger-point">' + esc(person.point.label || '시연 위치') + ' · ' + person.point.lat.toFixed(3) + ', ' + person.point.lon.toFixed(3) + '</div></div>' + (['COLLECTING', 'PLANNED'].includes(state.session.state) ? '<button class="icon-btn" data-action="remove" data-id="' + esc(person.id) + '" aria-label="' + esc(person.displayName) + ' 삭제">×</button>' : '') + '</div>').join('') + '</div>';
+  return '<div class="passenger-list">' + people.map((person, index) => '<div class="passenger-row"><div class="avatar">' + esc(passengerEmoji(person.displayName) || String.fromCharCode(65 + index)) + '</div><div class="passenger-main"><div class="passenger-name">' + esc(passengerName(person.displayName)) + '</div><div class="passenger-point">' + esc(person.point.label || '시연 위치') + ' · ' + person.point.lat.toFixed(3) + ', ' + person.point.lon.toFixed(3) + '</div></div>' + (['COLLECTING', 'PLANNED'].includes(state.session.state) ? '<button class="icon-btn" data-action="remove" data-id="' + esc(person.id) + '" aria-label="' + esc(passengerName(person.displayName)) + ' 삭제">×</button>' : '') + '</div>').join('') + '</div>';
 }
 
 function routeRows() {
   const order = currentOrder();
   if (!state.session?.routeSnapshot || !order.length) return '<div class="empty-list">' + (state.autoPlanning ? '추천 순서를 계산하고 있어요…' : state.autoPlanError ? '자동 계산을 완료하지 못했습니다. 다시 계산해 주세요.' : '위치가 등록되면 자동 계산합니다.') + '</div>';
   const editable = state.session.state === 'PLANNED' && state.parked;
-  const items = order.map((person, index) => '<li class="order-item"><span class="order-number">' + (index + 1) + '</span><div><div class="order-name">' + esc(person.displayName) + '</div><div class="order-destination">' + esc(person.point.label || '시연 지점') + '</div></div><div class="order-move">' + (editable ? '<button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="-1" aria-label="위로 이동" ' + (index === 0 || (state.session.priorityPassengerId && index === 1) ? 'disabled' : '') + '>↑</button><button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="1" aria-label="아래로 이동" ' + (index === order.length - 1 || (state.session.priorityPassengerId && index === 0) ? 'disabled' : '') + '>↓</button>' : '') + '</div></li>').join('');
+  const items = order.map((person, index) => '<li class="order-item"><span class="order-number">' + (index + 1) + '</span><div><div class="order-name">' + esc(passengerName(person.displayName)) + '</div><div class="order-destination">' + esc(person.point.label || '시연 지점') + '</div></div><div class="order-move">' + (editable ? '<button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="-1" aria-label="위로 이동" ' + (index === 0 || (state.session.priorityPassengerId && index === 1) ? 'disabled' : '') + '>↑</button><button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="1" aria-label="아래로 이동" ' + (index === order.length - 1 || (state.session.priorityPassengerId && index === 0) ? 'disabled' : '') + '>↓</button>' : '') + '</div></li>').join('');
   const providerLabel = state.routingProvider === 'naver' ? 'NAVER 실시간 경로' : state.routingProvider === 'osrm' ? '실제 도로 경로' : '모의 계산';
   return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">' + providerLabel + '</div></div><ol class="order-list">' + items + '</ol></div>';
 }
@@ -149,7 +157,7 @@ function routeRows() {
 function activeDestination() {
   const order = currentOrder();
   const index = state.session.activeIndex || 0;
-  if (index < order.length) return { label: order[index].displayName, point: order[index].point, type: '승객 하차' };
+  if (index < order.length) return { label: passengerName(order[index].displayName), point: order[index].point, type: '승객 하차' };
   if (state.session.finalPoint) return { label: state.session.finalPoint.label, point: state.session.finalPoint, type: '운전자 최종 목적지' };
   return { label: '모든 하차 지점', point: null, type: '이동 마무리' };
 }
@@ -276,7 +284,8 @@ function joinMarkup() {
     return '<button type="button" class="place-result" role="option" data-action="select-place" data-index="' + index + '"><span>' + esc(place.title) + '</span>' + (place.context ? '<small>' + esc(place.context) + '</small>' : '') + '</button>';
   }).join('');
   const searchMessage = state.searching ? '검색 중…' : state.searchError;
-  return heading + '<form id="passenger-form"><section class="phone-card destination-card"><input id="display-name" name="displayName" maxlength="20" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required><div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>목적지 등록</button></div></form></main>';
+  const emojiOptions = JOIN_EMOJIS.map(emoji => '<button type="button" class="emoji-option' + (emoji === state.avatarEmoji ? ' selected' : '') + '" data-action="select-emoji" data-emoji="' + emoji + '" aria-label="이모지 ' + emoji + '" aria-pressed="' + (emoji === state.avatarEmoji) + '">' + emoji + '</button>').join('');
+  return heading + '<form id="passenger-form"><section class="phone-card destination-card"><div class="avatar-picker" role="group" aria-label="지도에 표시할 이모지">' + emojiOptions + '</div><input id="display-name" name="displayName" maxlength="18" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required><div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>목적지 등록</button></div></form></main>';
 }
 
 function render() {
@@ -434,6 +443,15 @@ async function saveSettings() {
 async function handleAction(button) {
   const action = button.dataset.action;
   try {
+    if (action === 'select-emoji') {
+      state.avatarEmoji = JOIN_EMOJIS.includes(button.dataset.emoji) ? button.dataset.emoji : JOIN_EMOJIS[0];
+      app.querySelectorAll('.emoji-option').forEach(option => {
+        const selected = option.dataset.emoji === state.avatarEmoji;
+        option.classList.toggle('selected', selected);
+        option.setAttribute('aria-pressed', String(selected));
+      });
+      return;
+    }
     if (action === 'search-place') return await searchPlaces();
     if (action === 'select-place') return selectSearchResult(Number(button.dataset.index));
     if (action === 'new') return await newSession(false);
@@ -599,9 +617,10 @@ async function initializePassenger() {
 async function submitPassenger(event) {
   event.preventDefault();
   const form = event.target;
-  const name = form.elements.displayName.value.trim();
+  const nickname = form.elements.displayName.value.trim();
+  const name = state.avatarEmoji + ' ' + nickname;
   const errorNode = byId('phone-error');
-  if (!name || name.length > 20) { if (errorNode) errorNode.textContent = '별명은 1~20자로 입력해 주세요.'; return; }
+  if (!nickname || Array.from(nickname).length > 18) { if (errorNode) errorNode.textContent = '이름을 확인해 주세요.'; return; }
   state.pin.label = state.pin.label || '선택한 위치';
   state.saving = true;
   const button = form.querySelector('.phone-submit');

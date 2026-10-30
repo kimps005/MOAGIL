@@ -1,5 +1,11 @@
 /* NAVER Maps JavaScript API v3 adapter. Loaded only when an NCP Client ID is configured. */
 (() => {
+  const avatarEmojis = ['🚗', '🚕', '🚙', '🚌', '🚲', '🐱', '🐶', '🐼', '🐰', '🦊', '🌸', '⭐'];
+
+  function passengerEmoji(displayName) {
+    return avatarEmojis.find(emoji => String(displayName || '').startsWith(emoji + ' ')) || '';
+  }
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   }
@@ -59,7 +65,7 @@
       add(start, '출발', 'start', '출발 위치');
       order.forEach((id, index) => {
         const person = passengerById.get(id);
-        if (person) add(person.point, String(index + 1), index === 0 ? 'next' : 'stop', person.displayName || '하차 지점');
+        if (person) add(person.point, passengerEmoji(person.displayName) || String(index + 1), index === 0 ? 'next' : 'stop', person.displayName || '하차 지점');
       });
       if (session.finalPoint) add(session.finalPoint, '도착', 'start', '최종 목적지');
 

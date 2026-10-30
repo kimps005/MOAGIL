@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.clip
@@ -408,17 +409,23 @@ private fun LiveStopsPanel(
             }
 
             LazyColumn(
-                Modifier.fillMaxWidth().weight(1f),
+                Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                itemsIndexed(orderedPeople, key = { _, person -> person.id }) { _, passenger ->
+                itemsIndexed(orderedPeople, key = { _, person -> person.id }) { index, passenger ->
                     val friendIndex = registrationIndex[passenger.id] ?: 0
+                    val canReorder = state.simulatedParked && !state.busy && session.state == "PLANNED"
                     FriendStopRow(
                         passenger = passenger,
                         friendLabel = friendLabel(friendIndex),
                         priority = session.priorityPassengerId == passenger.id,
                         canPin = state.simulatedParked && !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
+                        canMoveUp = canReorder && index > 0 && (session.priorityPassengerId == null || index > 1),
+                        canMoveDown = canReorder && index < orderedPeople.lastIndex && passenger.id != session.priorityPassengerId,
+                        showReorder = session.state == "PLANNED",
                         onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
+                        onMoveUp = { model.movePassenger(passenger.id, -1) },
+                        onMoveDown = { model.movePassenger(passenger.id, 1) },
                     )
                 }
                 if (session.state == "ACTIVE") {
@@ -454,19 +461,35 @@ private fun FriendStopRow(
     friendLabel: String,
     priority: Boolean,
     canPin: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    showReorder: Boolean,
     onPin: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().background(if (priority) Color(0xFFEFF1FF) else PanelRaised, RoundedCornerShape(15.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Box(Modifier.size(34.dp).background(if (priority) Mint else Color(0xFFDDE3FF), CircleShape), contentAlignment = Alignment.Center) {
-            Text(friendLabel.takeLast(1), color = if (priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        val emoji = passengerEmoji(passenger.displayName)
+        Box(Modifier.size(44.dp).background(if (priority) Mint else Color(0xFFDDE3FF), CircleShape), contentAlignment = Alignment.Center) {
+            Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 23.sp else 18.sp)
         }
         Column(Modifier.weight(1f)) {
-            Text(friendLabel, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(passenger.point.label, color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passengerName(passenger.displayName), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passenger.point.label, color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (showReorder) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(32.dp)) {
+                    Text("↑", color = if (canMoveUp) Mint else Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(32.dp)) {
+                    Text("↓", color = if (canMoveDown) Mint else Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         IconButton(
             onClick = onPin,
@@ -497,6 +520,13 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
 }
 
 private fun friendLabel(index: Int): String = "친구 ${(index.coerceIn(0, 25) + 'A'.code).toChar()}"
+
+private val passengerAvatarEmojis = setOf("🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐")
+
+private fun passengerEmoji(displayName: String): String? = passengerAvatarEmojis.firstOrNull { displayName.startsWith("$it ") }
+
+private fun passengerName(displayName: String): String =
+    passengerEmoji(displayName)?.let { displayName.removePrefix("$it ").trim() } ?: displayName
 
 @Composable
 private fun SessionDetailsColumn(
@@ -650,7 +680,7 @@ private fun NaverRoadMapView(session: DriverSession, modifier: Modifier = Modifi
         addMarker(session.startPoint, "출발", AndroidColor.rgb(82, 91, 116))
         session.passengers.forEachIndexed { index, passenger ->
             val color = if (session.priorityPassengerId == passenger.id) AndroidColor.rgb(239, 151, 75) else AndroidColor.rgb(101, 121, 238)
-            addMarker(passenger.point, "${friendLabel(index)} · ${passenger.point.label}", color)
+            addMarker(passenger.point, passengerEmoji(passenger.displayName) ?: friendLabel(index).takeLast(1), color)
         }
         session.finalPoint?.let { addMarker(it, "도착", AndroidColor.rgb(82, 91, 116)) }
 
@@ -681,7 +711,8 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
         buildList {
             add(MapMarker(session.startPoint, "S", isStart = true))
             session.passengers.forEachIndexed { index, passenger ->
-                add(MapMarker(passenger.point, friendLabel(index).takeLast(1), isPriority = session.priorityPassengerId == passenger.id))
+                val emoji = passengerEmoji(passenger.displayName)
+                add(MapMarker(passenger.point, emoji ?: friendLabel(index).takeLast(1), isPriority = session.priorityPassengerId == passenger.id, isEmoji = emoji != null))
             }
             session.finalPoint?.let { add(MapMarker(it, "F", isFinal = true)) }
         }
@@ -759,7 +790,11 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
                     marker.isPriority -> Color(0xFFEF974B)
                     else -> Mint
                 }
-                val radius = if (marker.isStart || marker.isFinal) 12.dp.toPx() else 11.dp.toPx()
+                val radius = when {
+                    marker.isStart || marker.isFinal -> 12.dp.toPx()
+                    marker.isEmoji -> 16.dp.toPx()
+                    else -> 11.dp.toPx()
+                }
                 drawCircle(fill, radius = radius, center = center)
                 drawCircle(Color.White, radius = radius, center = center, style = Stroke(width = 2.dp.toPx()))
                 drawContext.canvas.nativeCanvas.drawText(
@@ -768,7 +803,7 @@ private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverT
                     center.y + 4.dp.toPx(),
                     android.graphics.Paint().apply {
                         color = AndroidColor.WHITE
-                        textSize = 10.sp.toPx()
+                    textSize = if (marker.isEmoji) 17.sp.toPx() else 10.sp.toPx()
                         textAlign = android.graphics.Paint.Align.CENTER
                         typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
                         isAntiAlias = true
@@ -812,6 +847,7 @@ private data class MapMarker(
     val isStart: Boolean = false,
     val isPriority: Boolean = false,
     val isFinal: Boolean = false,
+    val isEmoji: Boolean = false,
 )
 private data class WorldPoint(val x: Double, val y: Double)
 private data class MapCamera(val centerX: Double, val centerY: Double, val zoom: Int)
@@ -955,7 +991,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(passenger.displayName, fontWeight = FontWeight.SemiBold)
+                        Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold)
                         Text("${passenger.point.label} · ${"%.4f".format(Locale.US, passenger.point.lat)}, ${"%.4f".format(Locale.US, passenger.point.lon)}", color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (canRemove) TextButton(onClick = { onDelete(passenger) }, enabled = !state.busy) { Text("삭제", color = Alert) }
@@ -1004,7 +1040,7 @@ private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, mode
 @Composable
 private fun PriorityPicker(session: DriverSession, state: DriverUiState, model: MoagilViewModel, enabled: Boolean) {
     var expanded by remember { mutableStateOf(false) }
-    val selected = session.passengers.firstOrNull { it.id == state.priorityId }?.displayName ?: "지정 안 함"
+    val selected = session.passengers.firstOrNull { it.id == state.priorityId }?.displayName?.let(::passengerName) ?: "지정 안 함"
     Column {
         Text("먼저 하차할 승객", color = Muted, fontSize = 12.sp)
         Box {
@@ -1012,7 +1048,7 @@ private fun PriorityPicker(session: DriverSession, state: DriverUiState, model: 
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 DropdownMenuItem(text = { Text("지정 안 함") }, onClick = { expanded = false; if (state.priorityId != null) model.setPriority(null) })
                 session.passengers.forEach { passenger ->
-                    DropdownMenuItem(text = { Text(passenger.displayName) }, onClick = { expanded = false; if (passenger.id != state.priorityId) model.setPriority(passenger.id) })
+                    DropdownMenuItem(text = { Text(passengerName(passenger.displayName)) }, onClick = { expanded = false; if (passenger.id != state.priorityId) model.setPriority(passenger.id) })
                 }
             }
         }
@@ -1044,7 +1080,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                 Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${index + 1}", color = Mint, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(passenger?.displayName ?: "동승자", fontWeight = FontWeight.SemiBold)
+                        Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold)
                         Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 12.sp)
                     }
                     val fixed = session.priorityPassengerId == id
@@ -1081,7 +1117,7 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
             Text("${session.selectedOrder.size - session.activeIndex}명 남음", color = Muted, fontSize = 12.sp)
             Text(
                 when {
-                    passenger != null -> "다음 하차 · ${passenger.displayName}"
+                    passenger != null -> "다음 하차 · ${passengerName(passenger.displayName)}"
                     finalLeg -> "운전자 최종 목적지 · ${session.finalPoint?.label}"
                     else -> "승객 하차 완료"
                 },
