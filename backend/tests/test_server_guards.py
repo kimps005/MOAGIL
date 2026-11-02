@@ -65,6 +65,17 @@ class ServerGuardTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual("kakao", payload["mapProvider"])
 
+    def test_content_security_policy_allows_kakao_map_loader_bundle(self):
+        headers = {}
+        handler = object.__new__(Handler)
+        handler.send_header = lambda name, value: headers.__setitem__(name, value)
+        handler._headers("text/html; charset=utf-8", static_page=True)
+
+        policy = headers["Content-Security-Policy"]
+        self.assertIn("https://dapi.kakao.com", policy)
+        self.assertIn("https://t1.kakaocdn.net", policy)
+        self.assertNotIn("'unsafe-eval'", policy)
+
     def test_homepage_is_served_when_database_is_unavailable(self):
         served_paths = []
 

@@ -88,6 +88,7 @@ if os.environ.get("VERCEL") == "1":
 MAP_TILE_DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60
 MAP_TILE_MAX_BYTES = 2 * 1024 * 1024
 MAP_TILE_MAX_ZOOM = 19
+CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' https://dapi.kakao.com https://t1.kakaocdn.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
 _map_tile_locks_guard = threading.Lock()
 _map_tile_locks: OrderedDict[str, threading.Lock] = OrderedDict()
 
@@ -607,7 +608,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin" if static_page else "no-referrer")
         self.send_header("Cache-Control", cache_control)
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://dapi.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
 
     def _send_json(self, status: int, payload: dict, extra_headers: dict[str, str] | None = None):
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
