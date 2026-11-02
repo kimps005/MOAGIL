@@ -30,7 +30,7 @@ jobs:
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
       - name: Run unit tests and build Mock and Pleos APKs
         working-directory: vehicle-app
-        run: ./gradlew testMockDebugUnitTest assembleMockDebug assemblePleosDebug
+        run: bash ./gradlew testMockDebugUnitTest assembleMockDebug assemblePleosDebug
       - name: Verify and upload debug APKs
         uses: actions/upload-artifact@v4
         with:
