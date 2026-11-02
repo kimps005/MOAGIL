@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import re
 import secrets
@@ -743,9 +744,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            _ensure_db_ready()
             path = self._path()
             if path == "/api/health":
+                _ensure_db_ready()
                 return self._send_json(200, {"status": "ok", "mode": routing_provider()})
             if path == "/api/config":
                 kakao_map_key = os.environ.get("MOAGIL_KAKAO_JAVASCRIPT_KEY", "").strip()
@@ -763,6 +764,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, "QUERY_TOO_LONG", "검색어는 80자 이내로 입력해 주세요.")
                 return self._send_json(200, _search_places(query))
             if path.startswith("/api/sessions/"):
+                _ensure_db_ready()
                 parts = path.split("/")
                 if len(parts) == 7 and parts[4] == "passengers" and parts[6] == "progress":
                     with _db_connection() as db:
@@ -793,6 +795,7 @@ class Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             return
         except Exception:
+            logging.exception("Unhandled GET request failure")
             self._error(ApiError(500, "INTERNAL_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요"))
 
     def do_POST(self):
@@ -855,6 +858,7 @@ class Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             return
         except Exception:
+            logging.exception("Unhandled POST request failure")
             self._error(ApiError(500, "INTERNAL_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요"))
 
     def do_PUT(self):

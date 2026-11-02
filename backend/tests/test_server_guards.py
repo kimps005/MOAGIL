@@ -61,6 +61,18 @@ class ServerGuardTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual("kakao", payload["mapProvider"])
 
+    def test_homepage_is_served_when_database_is_unavailable(self):
+        class StaticResponseHandler(Handler):
+            def _path(self):
+                return "/"
+
+            def _serve_static(self, path):
+                return path
+
+        handler = object.__new__(StaticResponseHandler)
+        with patch("server._ensure_db_ready", side_effect=AssertionError("homepage must not initialize the database")):
+            self.assertEqual("/", handler.do_GET())
+
     def test_routing_provider_is_always_kakao_even_when_a_fallback_is_configured(self):
         for configured in ("", "osrm", "naver", "mock"):
             with self.subTest(configured=configured), patch.dict(os.environ, {"MOAGIL_ROUTING_PROVIDER": configured}):
