@@ -68,7 +68,8 @@ class GeocodeEndpointTests(unittest.TestCase):
     def test_endpoint_decodes_query_and_returns_provider_results(self):
         handler = self.handler("%EC%98%A4%EC%9D%B4%EB%8F%84%EC%97%AD")
         expected = {"features": [{"properties": {"name": "오이도역"}}]}
-        with patch("server._photon_search", return_value=expected) as search:
+        with patch.dict("os.environ", {"MOAGIL_KAKAO_REST_API_KEY": ""}), \
+                patch("server._photon_search", return_value=expected) as search:
             handler.do_GET()
 
         search.assert_called_once_with("오이도역")

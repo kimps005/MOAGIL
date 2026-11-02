@@ -43,11 +43,13 @@ def haversine_m(a: dict, b: dict) -> float:
 
 def evaluate_route(points: Iterable[dict]) -> dict:
     points = list(points)
-    meters = round(sum(haversine_m(a, b) for a, b in zip(points, points[1:])) * 1.25)
+    leg_distances = [haversine_m(a, b) * 1.25 for a, b in zip(points, points[1:])]
+    meters = round(sum(leg_distances))
     duration_ms = round(meters / (30_000 / 3600) * 1000)
     return {
         "durationMs": duration_ms,
         "distanceM": meters,
+        "legDurationsMs": [round(distance / (30_000 / 3600) * 1000) for distance in leg_distances],
         "tollKrw": None,
         "dataSource": "mock-straight-line",
         "fetchedAt": utc_now(),
@@ -89,6 +91,8 @@ def plan_routes(
             "order": [p["id"] for p in order],
             "durationMs": estimate["durationMs"],
             "distanceM": distance,
+            "legDurationsMs": estimate.get("legDurationsMs"),
+            "legDurationsApproximate": estimate.get("legDurationsApproximate", False),
             "tollKrw": estimate.get("tollKrw"),
             "dataSource": estimate.get("dataSource", "unknown"),
             "fetchedAt": estimate.get("fetchedAt", utc_now()),

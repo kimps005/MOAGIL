@@ -2,7 +2,10 @@ package kr.moagil.vehicle.navigation
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
 import ai.pleos.playground.navi.constants.RouteOption
+import ai.pleos.playground.navi.constants.WaypointIndex
+import ai.pleos.playground.navi.data.RequestWaypointInfo
 import ai.pleos.playground.navi.data.RouteInfo
+import ai.pleos.playground.navi.data.RouteWithWaypointsRequest
 import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.data.DrivingInfo
 import ai.pleos.playground.navi.helper.NaviHelper
@@ -41,16 +44,23 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
     private data class PendingRoute(
         val result: CompletableDeferred<NavigationResult>,
         val startedAtElapsedMs: Long,
-        val expectedDestination: String,
+        val expectedDestinations: Set<String>,
         val routeStarted: AtomicBoolean = AtomicBoolean(false),
     ) {
         fun elapsedMs(): Long = (SystemClock.elapsedRealtime() - startedAtElapsedMs).coerceAtLeast(0)
     }
 
-    override suspend fun navigateTo(point: Point): NavigationResult {
+    override suspend fun navigateTo(point: Point): NavigationResult = navigateRoute(point, emptyList())
+
+    override suspend fun navigateRoute(destination: Point, waypoints: List<Point>): NavigationResult {
+        require(waypoints.size <= 2) { "Pleos 내비 경유지는 한 구간에 최대 2개까지 보낼 수 있습니다." }
         val startedAtElapsedMs = SystemClock.elapsedRealtime()
         return routeLock.withLock {
-            val pending = PendingRoute(CompletableDeferred(), startedAtElapsedMs, point.label)
+            val pending = PendingRoute(
+                CompletableDeferred(),
+                startedAtElapsedMs,
+                (waypoints.map(Point::label) + destination.label).toSet(),
+            )
             pendingResult.set(pending)
             try {
                 val connected = connect()
@@ -59,17 +69,27 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
                         pending.elapsedMs(),
                     )
                 withContext(Dispatchers.Main.immediate) {
-                    connected.helper.requestRoute(
-                        RouteInfo(
-                            latitude = point.lat,
-                            longitude = point.lon,
-                            poiName = point.label,
-                            poiId = "",
-                            address = point.label,
-                            poiSubId = "0",
-                            routeOption = RouteOption.RECOMMENDED,
-                        ),
-                    )
+                    val destinationInfo = destination.toRouteInfo()
+                    if (waypoints.isEmpty()) {
+                        connected.helper.requestRoute(destinationInfo)
+                    } else {
+                        connected.helper.requestRouteWithWaypoints(
+                            RouteWithWaypointsRequest(
+                                destination = destinationInfo,
+                                waypoints = waypoints.mapIndexed { index, point ->
+                                    RequestWaypointInfo(
+                                        latitude = point.lat,
+                                        longitude = point.lon,
+                                        poiName = point.label,
+                                        waypointIndex = if (index == 0) WaypointIndex.FIRST else WaypointIndex.SECOND,
+                                        poiId = "",
+                                        address = point.label,
+                                        poiSubId = "0",
+                                    )
+                                },
+                            ),
+                        )
+                    }
                 }
                 pending.result.await()
             } catch (cancelled: CancellationException) {
@@ -90,6 +110,16 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         }
     }
 
+    private fun Point.toRouteInfo() = RouteInfo(
+        latitude = lat,
+        longitude = lon,
+        poiName = label,
+        poiId = "",
+        address = label,
+        poiSubId = "0",
+        routeOption = RouteOption.RECOMMENDED,
+    )
+
     private suspend fun connect(): Connection? {
         connection?.let { return it }
 
@@ -104,7 +134,11 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
             override fun onRoutingCompleted() {
                 Log.i(TAG, "Pleos completed route search")
                 pendingResult.get()?.let { pending ->
-                    pending.result.complete(NavigationResult.Completed(pending.elapsedMs()))
+                    pending.result.complete(
+                        NavigationResult.Completed(
+                            pending.elapsedMs(),
+                        ),
+                    )
                 }
             }
 
@@ -126,7 +160,8 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
             override fun onDrivingInfo(drivingInfo: DrivingInfo) {
                 val pending = pendingResult.get() ?: return
                 val destination = drivingInfo.destination
-                if (pending.routeStarted.get() && destination.name.equals(pending.expectedDestination, ignoreCase = true)) {
+                val matchedDestination = pending.expectedDestinations.any { it.equals(destination.name, ignoreCase = true) }
+                if (pending.routeStarted.get() && matchedDestination) {
                     Log.i(TAG, "Pleos confirmed requested destination via onDrivingInfo: ${destination.name}, ${destination.distance}m, ${destination.duration}s")
                     pending.result.complete(
                         NavigationResult.DestinationConfirmed(

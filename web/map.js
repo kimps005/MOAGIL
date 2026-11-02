@@ -1,16 +1,8 @@
 /* OpenStreetMap tiles and OSRM road geometries for the MOAGIL demo. */
 (() => {
+  const { passengerEmoji, escapeHtml } = window.MOAGILUtils;
   const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>';
   const tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const avatarEmojis = ['🚗', '🚕', '🚙', '🚌', '🚲', '🐱', '🐶', '🐼', '🐰', '🦊', '🌸', '⭐'];
-
-  function passengerEmoji(displayName) {
-    return avatarEmojis.find(emoji => String(displayName || '').startsWith(emoji + ' ')) || '';
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-  }
 
   function createMap(element, center, zoom) {
     const map = L.map(element, { zoomControl: false, attributionControl: true, scrollWheelZoom: true });

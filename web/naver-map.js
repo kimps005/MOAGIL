@@ -1,14 +1,6 @@
 /* NAVER Maps JavaScript API v3 adapter. Loaded only when an NCP Client ID is configured. */
 (() => {
-  const avatarEmojis = ['🚗', '🚕', '🚙', '🚌', '🚲', '🐱', '🐶', '🐼', '🐰', '🦊', '🌸', '⭐'];
-
-  function passengerEmoji(displayName) {
-    return avatarEmojis.find(emoji => String(displayName || '').startsWith(emoji + ' ')) || '';
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-  }
+  const { passengerEmoji, escapeHtml } = window.MOAGILUtils;
 
   function latLng(point) {
     return new naver.maps.LatLng(Number(point.lat), Number(point.lon));

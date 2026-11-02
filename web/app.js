@@ -1,13 +1,14 @@
-/* MOAGIL route planner. Map tiles and road routes use OpenStreetMap data. */
+/* MOAGIL web route planner. */
 const app = document.getElementById('app');
 const captureMode = new URLSearchParams(location.search).has('capture');
-let activeMaps = [];
+let activeDriverMaps = [];
 let passengerMapController = null;
 let mapConfigPromise = null;
-let naverMapScriptPromise = null;
+let kakaoMapScriptPromise = null;
 let autoPlanInFlight = false;
 let autoPlanRequested = false;
 let autoPlanAttemptKey = null;
+let passengerRefreshTimer = null;
 const state = {
   session: null,
   credentials: null,
@@ -19,6 +20,9 @@ const state = {
   joinId: null,
   joinInfo: null,
   joined: false,
+  passengerProgress: null,
+  passengerAccount: null,
+  editingPassenger: false,
   searchQuery: '',
   searchResults: [],
   searchError: '',
@@ -28,19 +32,18 @@ const state = {
   showPhone: false,
   autoPlanning: false,
   autoPlanError: '',
-  mapProvider: 'osm',
-  routingProvider: 'osrm',
+  mapProvider: 'kakao',
+  mapErrorMessage: '',
+  routingProvider: 'kakao',
   avatarEmoji: '🚗',
 };
 
-const JOIN_EMOJIS = ['🚗', '🚕', '🚙', '🚌', '🚲', '🐱', '🐶', '🐼', '🐰', '🦊', '🌸', '⭐'];
-const passengerEmoji = displayName => JOIN_EMOJIS.find(emoji => String(displayName || '').startsWith(emoji + ' ')) || '';
+const { avatarEmojis: JOIN_EMOJIS, passengerEmoji, escapeHtml: esc } = window.MOAGILUtils;
 const passengerName = displayName => {
   const emoji = passengerEmoji(displayName);
   return emoji ? String(displayName).slice(emoji.length).trim() : String(displayName || '');
 };
 
-const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 const fmtNumber = value => new Intl.NumberFormat('ko-KR').format(value);
 const shortId = value => String(value || '').slice(0, 8).toUpperCase();
 const byId = id => document.getElementById(id);
@@ -55,7 +58,12 @@ async function api(path, options = {}, token = '') {
     throw new Error('서버에 연결할 수 없습니다. QR 주소와 PC 시연 서버가 켜져 있는지 확인해 주세요.');
   }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || '요청을 처리하지 못했습니다.');
+  if (!response.ok) {
+    const error = new Error(payload.error?.message || '요청을 처리하지 못했습니다.');
+    error.status = response.status;
+    error.code = payload.error?.code || '';
+    throw error;
+  }
   return payload;
 }
 
@@ -104,13 +112,15 @@ function currentOrder() {
 async function loadMapConfig() {
   if (!mapConfigPromise) {
     mapConfigPromise = api('/api/config').then(config => {
-      state.mapProvider = config.mapProvider || 'osm';
-      state.routingProvider = config.routingProvider || 'osrm';
-      return config;
+      state.mapProvider = 'kakao';
+      state.mapErrorMessage = '';
+      state.routingProvider = 'kakao';
+      return { ...config, mapProvider: 'kakao' };
     }).catch(() => {
-      state.mapProvider = 'osm';
-      state.routingProvider = 'osrm';
-      return { mapProvider: 'osm', routingProvider: 'osrm', naverMapClientId: '' };
+      state.mapProvider = 'kakao';
+      state.mapErrorMessage = '서버에서 지도 설정을 읽지 못했어요. 시연 서버가 최신 코드로 실행 중인지 확인해 주세요.';
+      state.routingProvider = 'kakao';
+      return { mapProvider: 'kakao', routingProvider: 'kakao', kakaoMapJavascriptKey: '' };
     });
   }
   return mapConfigPromise;
@@ -118,25 +128,37 @@ async function loadMapConfig() {
 
 async function getMapAdapter() {
   const config = await loadMapConfig();
-  if (config.mapProvider === 'naver' && config.naverMapClientId) {
-    if (!window.naver?.maps) {
-      if (!naverMapScriptPromise) {
-        naverMapScriptPromise = new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + encodeURIComponent(config.naverMapClientId);
-          script.async = true;
-          script.onload = resolve;
-          script.onerror = () => reject(new Error('네이버 지도 API를 불러오지 못했습니다. Client ID와 등록 도메인을 확인해 주세요.'));
-          document.head.appendChild(script);
-        });
-      }
-      await naverMapScriptPromise;
-    }
-    if (!window.MOAGILNaverMaps) throw new Error('네이버 지도 모듈을 초기화하지 못했습니다.');
-    return window.MOAGILNaverMaps;
+  if (!config.kakaoMapJavascriptKey) {
+    state.mapErrorMessage = '카카오 지도 JavaScript 키가 서버에 없습니다. .env 설정을 확인해 주세요.';
+    throw new Error(state.mapErrorMessage);
   }
-  if (!window.MOAGILMaps) throw new Error('OpenStreetMap 모듈을 불러오지 못했습니다.');
-  return window.MOAGILMaps;
+  if (!window.kakao?.maps?.Map && !kakaoMapScriptPromise) {
+    kakaoMapScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(config.kakaoMapJavascriptKey);
+      script.async = true;
+      script.onload = () => window.kakao?.maps?.Map
+        ? resolve()
+        : reject(new Error('카카오 지도 JavaScript API를 초기화하지 못했습니다.'));
+      script.onerror = () => reject(new Error('카카오 지도 서버에 연결하지 못했습니다. 인터넷/DNS, JavaScript 키와 등록 도메인을 확인해 주세요.'));
+      document.head.appendChild(script);
+    }).catch(error => {
+      kakaoMapScriptPromise = null;
+      state.mapErrorMessage = error.message;
+      throw error;
+    });
+  }
+  if (kakaoMapScriptPromise) await kakaoMapScriptPromise;
+  if (!window.MOAGILKakaoMaps) {
+    state.mapErrorMessage = '카카오 지도 모듈을 초기화하지 못했습니다.';
+    throw new Error(state.mapErrorMessage);
+  }
+  return window.MOAGILKakaoMaps;
+}
+
+function mapLoadErrorMarkup() {
+  const message = state.mapErrorMessage || '카카오 지도를 불러오지 못했어요. JavaScript 키와 등록 도메인, 인터넷/DNS 연결을 확인해 주세요.';
+  return `<div class="map-error">${esc(message)}<br><button type="button" class="btn" data-action="retry-map">다시 시도</button></div>`;
 }
 
 function passengerRows() {
@@ -150,7 +172,7 @@ function routeRows() {
   if (!state.session?.routeSnapshot || !order.length) return '<div class="empty-list">' + (state.autoPlanning ? '추천 순서를 계산하고 있어요…' : state.autoPlanError ? '자동 계산을 완료하지 못했습니다. 다시 계산해 주세요.' : '위치가 등록되면 자동 계산합니다.') + '</div>';
   const editable = state.session.state === 'PLANNED' && state.parked;
   const items = order.map((person, index) => '<li class="order-item"><span class="order-number">' + (index + 1) + '</span><div><div class="order-name">' + esc(passengerName(person.displayName)) + '</div><div class="order-destination">' + esc(person.point.label || '시연 지점') + '</div></div><div class="order-move">' + (editable ? '<button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="-1" aria-label="위로 이동" ' + (index === 0 || (state.session.priorityPassengerId && index === 1) ? 'disabled' : '') + '>↑</button><button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="1" aria-label="아래로 이동" ' + (index === order.length - 1 || (state.session.priorityPassengerId && index === 0) ? 'disabled' : '') + '>↓</button>' : '') + '</div></li>').join('');
-  const providerLabel = state.routingProvider === 'naver' ? 'NAVER 실시간 경로' : state.routingProvider === 'osrm' ? '실제 도로 경로' : '모의 계산';
+  const providerLabel = 'Kakao Navi 실시간 경로';
   return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">' + providerLabel + '</div></div><ol class="order-list">' + items + '</ol></div>';
 }
 
@@ -166,8 +188,8 @@ function driverMarkup() {
   const session = state.session;
   const passengers = session?.passengers || [];
   const waiting = session && session.state === 'COLLECTING' && passengers.length === 0;
-  const mapName = state.mapProvider === 'naver' ? '네이버 지도' : 'OpenStreetMap';
-  const routeProviderLabel = state.routingProvider === 'naver' ? 'NAVER Directions' : state.routingProvider === 'osrm' ? 'OSRM 실제 도로 경로' : '모의 경로';
+  const mapName = '카카오 지도';
+  const routeProviderLabel = 'Kakao Mobility 실시간 길찾기';
   const capture = captureMode;
   const phoneUrl = capture && state.credentials ? location.origin + '/join/' + session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken) : '';
   const phonePreview = capture && state.showPhone ? `<div class='preview-backdrop'><section class='preview-panel'><div class='preview-copy'><h2>휴대폰 참가 화면</h2><p class='subcopy'>실제 QR 대신 같은 참가 페이지를 미리 봅니다.</p><button class='btn' data-action='close-preview'>닫기</button></div><div class='phone-device'><div class='phone-notch'></div><iframe title='시연용 참가자 모바일 화면' src='${esc(phoneUrl)}'></iframe></div></section></div>` : '';
@@ -192,10 +214,10 @@ function driverMarkup() {
   return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/'><span class='brand-mark'>M</span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot orange'></i>다음 하차</span><span class='legend-item'><i class='legend-dot'></i>등록 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
 }
 
-function photonPlaceParts(feature) {
+function placeParts(feature) {
   const props = feature?.properties || {};
-  const title = String(props.name || props.street || props.city || '검색 위치');
-  const context = [props.district, props.city, props.state, props.country]
+  const title = String(props.name || props.street || props.city || props.address || '검색 위치');
+  const context = [props.roadAddress, props.address, props.district, props.city, props.state, props.country]
     .filter(value => value && String(value) !== title)
     .map(String)
     .filter((value, index, values) => values.indexOf(value) === index)
@@ -209,7 +231,7 @@ function renderPlaceSearchResults() {
   if (!container) return;
   if (button) button.disabled = state.searching;
   const results = state.searchResults.map((feature, index) => {
-    const place = photonPlaceParts(feature);
+    const place = placeParts(feature);
     return `<button type="button" class="place-result" role="option" data-action="select-place" data-index="${index}"><span>${esc(place.title)}</span>${place.context ? `<small>${esc(place.context)}</small>` : ''}</button>`;
   }).join('');
   const message = state.searching ? '<div class="place-search-message">검색 중…</div>' : state.searchError ? `<div class="place-search-message">${esc(state.searchError)}</div>` : '';
@@ -236,8 +258,14 @@ async function searchPlaces() {
     const features = Array.isArray(result.features) ? result.features : [];
     const needle = query.toLocaleLowerCase('ko-KR').replace(/\s+/g, ' ');
     const score = feature => {
-      const name = String(feature?.properties?.name || '').toLocaleLowerCase('ko-KR').replace(/\s+/g, ' ');
-      return name === needle ? 0 : name.includes(needle) ? 1 : needle.includes(name) ? 2 : 3;
+      const props = feature?.properties || {};
+      const names = [props.name, props.address, props.roadAddress]
+        .filter(Boolean)
+        .map(value => String(value).toLocaleLowerCase('ko-KR').replace(/\s+/g, ' '));
+      if (names.some(name => name === needle)) return 0;
+      if (names.some(name => name.includes(needle))) return 1;
+      if (names.some(name => needle.includes(name))) return 2;
+      return 3;
     };
     state.searchResults = features.sort((a, b) => score(a) - score(b));
     if (!state.searchResults.length) state.searchError = '검색 결과가 없습니다.';
@@ -263,7 +291,7 @@ function selectSearchResult(index) {
     renderPlaceSearchResults();
     return;
   }
-  const place = photonPlaceParts(feature);
+  const place = placeParts(feature);
   state.pin = { lat: +lat.toFixed(6), lon: +lon.toFixed(6), label: place.label };
   state.searchQuery = place.title;
   state.searchResults = [];
@@ -271,25 +299,62 @@ function selectSearchResult(index) {
   render();
 }
 
+function passengerProgressMarkup() {
+  if (!state.passengerProgress) {
+    return '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><h1>내 이동 정보를 불러오지 못했어요</h1><p>' + esc(state.joinError || '인터넷 연결을 확인해 주세요.') + '</p></section><section class="phone-card passenger-progress-card"><button class="btn primary" data-action="refresh-passenger">다시 불러오기</button></section></main>';
+  }
+
+  const progress = state.passengerProgress;
+  const person = progress.passenger;
+  const copy = {
+    COLLECTING: ['경로 계산 중', '운전자가 참가자 위치를 모으고 있어요.'],
+    READY: ['출발 대기', '추천 하차 순서가 정해졌어요.'],
+    CURRENT_STOP: ['내 목적지로 이동 중', '운전자가 현재 경로를 따라 이동하고 있어요.'],
+    UPCOMING: ['앞 순서 하차 진행 중', '내 차례가 되면 화면 상태가 바뀝니다.'],
+    DROPPED_OFF: ['하차 완료', '내 목적지에 도착했어요.'],
+    TRIP_COMPLETE: ['이동 종료', '이번 이동이 종료됐어요.'],
+    CANCELLED: ['이동 취소', '운전자가 이동을 종료했어요.'],
+    EXPIRED: ['세션 만료', '이 초대 세션은 만료됐어요.'],
+  }[progress.status] || ['이동 정보', '운전자 화면이 바뀌면 여기도 업데이트돼요.'];
+  const routeTime = progress.sessionState === 'ACTIVE'
+    ? progress.remainingDurationMs
+    : progress.sessionState === 'PLANNED' ? progress.estimatedDurationMs : null;
+  let routeTimeLabel = routeTime == null ? '계산 중' : formatDuration(routeTime);
+  if (['DROPPED_OFF', 'TRIP_COMPLETE'].includes(progress.status)) routeTimeLabel = '완료';
+  if (['CANCELLED', 'EXPIRED'].includes(progress.status)) routeTimeLabel = '—';
+  const routeTimeCaption = progress.sessionState === 'ACTIVE' ? '현재 순서 기준 예상' : progress.sessionState === 'PLANNED' ? '출발 후 예상' : '예상 시간';
+  const stopLabel = progress.stopNumber ? progress.stopNumber + '번째 / ' + progress.totalStops + '명' : '순서 계산 중';
+  const editButton = progress.canEdit ? '<button class="btn primary" data-action="edit-passenger">목적지 수정</button>' : '';
+  const etaNote = routeTime != null && ['PLANNED', 'ACTIVE'].includes(progress.sessionState)
+    ? '<p class="passenger-progress-note">' + (progress.routeNote ? esc(progress.routeNote) + '. ' : '') + (progress.estimatedTimeApproximate ? '구간별 시간은 경로 전체 시간과 거리 비율로 나눈 참고값입니다. ' : '') + '현재 차량 위치와 실제 교통에 따라 달라질 수 있어요.</p>' : '';
+  const error = state.joinError ? '<p class="phone-error">' + esc(state.joinError) + '</p>' : '';
+
+  return '<main class="passenger-shell passenger-progress-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><div class="eyebrow">동승자 전용</div><h1>내 이동 정보</h1><p>운전자 화면이 바뀌면 여기도 자동으로 업데이트돼요.</p></section><section class="phone-card passenger-progress-card"><div class="passenger-progress-status"><span class="success-mark">' + esc(passengerEmoji(person.displayName) || '✓') + '</span><div><h2>' + esc(copy[0]) + '</h2><p>' + esc(copy[1]) + '</p></div></div><div class="passenger-progress-identity"><strong>' + esc(person.displayName) + '</strong><span>' + esc(person.point?.label || '등록한 목적지') + '</span></div><div class="passenger-progress-metrics"><div class="passenger-progress-metric"><small>내 하차 순서</small><strong>' + esc(stopLabel) + '</strong></div><div class="passenger-progress-metric"><small>' + esc(routeTimeCaption) + '</small><strong>' + esc(routeTimeLabel) + '</strong></div></div>' + etaNote + error + '<div class="passenger-progress-actions">' + editButton + '<button class="btn" data-action="refresh-passenger">상태 새로고침</button></div></section></main>';
+}
+
 function joinMarkup() {
   document.body.classList.add('passenger-body');
+  if (state.joined && !state.editingPassenger) return passengerProgressMarkup();
   const error = state.joinError || '';
-  const joined = state.joined;
   const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-name">MOAGIL</span></a></header>'
-    + '<section class="passenger-heading"><h1>' + (joined ? '등록 완료' : '목적지 입력') + '</h1></section>';
-  if (!state.joinInfo) return heading + '<div class="loading-card">초대 확인 중…</div></main>';
-  if (joined) return heading + '<section class="phone-card passenger-result"><div class="success-mark">✓</div><h2>' + esc(state.joinedName) + '</h2><p>목적지를 등록했어요.</p></section></main>';
+    + '<section class="passenger-heading"><h1>' + (state.editingPassenger ? '내 목적지 수정' : '목적지 입력') + '</h1>' + (state.editingPassenger ? '<p>이동이 시작되기 전까지 수정할 수 있어요.</p>' : '') + '</section>';
+  if (!state.joinInfo && !state.passengerProgress) return heading + '<div class="loading-card">초대 확인 중…</div></main>';
   const searchResults = state.searchResults.map((feature, index) => {
-    const place = photonPlaceParts(feature);
+  const place = placeParts(feature);
     return '<button type="button" class="place-result" role="option" data-action="select-place" data-index="' + index + '"><span>' + esc(place.title) + '</span>' + (place.context ? '<small>' + esc(place.context) + '</small>' : '') + '</button>';
   }).join('');
   const searchMessage = state.searching ? '검색 중…' : state.searchError;
   const emojiOptions = JOIN_EMOJIS.map(emoji => '<button type="button" class="emoji-option' + (emoji === state.avatarEmoji ? ' selected' : '') + '" data-action="select-emoji" data-emoji="' + emoji + '" aria-label="이모지 ' + emoji + '" aria-pressed="' + (emoji === state.avatarEmoji) + '">' + emoji + '</button>').join('');
-  return heading + '<form id="passenger-form"><section class="phone-card destination-card"><div class="avatar-picker" role="group" aria-label="지도에 표시할 이모지">' + emojiOptions + '</div><input id="display-name" name="displayName" maxlength="18" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required><div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div></section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>목적지 등록</button></div></form></main>';
+  const savedDisplayName = state.editingPassenger ? state.passengerProgress?.passenger?.displayName || '' : '';
+  const identityField = state.editingPassenger
+    ? '<div class="passenger-edit-identity">' + esc(savedDisplayName) + '</div>'
+    : '<div class="avatar-picker" role="group" aria-label="지도에 표시할 이모지">' + emojiOptions + '</div><input id="display-name" name="displayName" maxlength="18" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required>';
+  const cancelEdit = state.editingPassenger ? '<button type="button" class="tiny-button passenger-cancel-edit" data-action="cancel-passenger-edit">수정 취소</button>' : '';
+  return heading + '<form id="passenger-form"><section class="phone-card destination-card">' + identityField + '<div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div>' + cancelEdit + '</section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>' + (state.editingPassenger ? '수정 저장' : '목적지 등록') + '</button></div></form></main>';
 }
 
 function render() {
-  destroyLeafletMaps();
+  destroyDriverMaps();
   if (location.pathname.startsWith('/join/')) {
     app.innerHTML = joinMarkup();
     bindPassengerMap();
@@ -306,9 +371,9 @@ function render() {
   bindDriverMap();
 }
 
-function destroyLeafletMaps() {
-  activeMaps.forEach(instance => instance.destroy?.());
-  activeMaps = [];
+function destroyDriverMaps() {
+  activeDriverMaps.forEach(instance => instance.destroy?.());
+  activeDriverMaps = [];
   passengerMapController = null;
 }
 
@@ -319,9 +384,9 @@ async function bindDriverMap() {
     const maps = await getMapAdapter();
     if (!element.isConnected) return;
     const instance = maps.createDriverMap(element, state.session);
-    activeMaps.push(instance.destroy ? instance : { destroy: () => instance.remove() });
+    activeDriverMaps.push(instance.destroy ? instance : { destroy: () => instance.remove() });
   } catch (_error) {
-    if (element.isConnected) element.innerHTML = '<div class="map-error">네이버 지도를 불러오지 못했어요.<br>Client ID, 등록 URL, Dynamic Map 설정을 확인해 주세요.</div>';
+    if (element.isConnected) element.innerHTML = mapLoadErrorMarkup();
   }
 }
 
@@ -443,6 +508,13 @@ async function saveSettings() {
 async function handleAction(button) {
   const action = button.dataset.action;
   try {
+    if (action === 'retry-map') {
+      state.mapErrorMessage = '';
+      mapConfigPromise = null;
+      kakaoMapScriptPromise = null;
+      render();
+      return;
+    }
     if (action === 'select-emoji') {
       state.avatarEmoji = JOIN_EMOJIS.includes(button.dataset.emoji) ? button.dataset.emoji : JOIN_EMOJIS[0];
       app.querySelectorAll('.emoji-option').forEach(option => {
@@ -463,6 +535,34 @@ async function handleAction(button) {
     }
     if (action === 'preview') { state.showPhone = true; render(); return; }
     if (action === 'close-preview') { state.showPhone = false; await refreshSession(true); return; }
+    if (action === 'edit-passenger') {
+      if (!state.passengerProgress?.canEdit) return toast('이동이 시작되어 목적지를 수정할 수 없습니다.');
+      const person = state.passengerProgress.passenger;
+      state.avatarEmoji = passengerEmoji(person.displayName) || JOIN_EMOJIS[0];
+      state.pin = { ...person.point };
+      state.searchQuery = person.point.label || '';
+      state.searchResults = [];
+      state.searchError = '';
+      state.joinError = '';
+      state.editingPassenger = true;
+      render();
+      return;
+    }
+    if (action === 'cancel-passenger-edit') {
+      if (state.passengerProgress?.passenger?.point) state.pin = { ...state.passengerProgress.passenger.point };
+      state.searchQuery = '';
+      state.searchResults = [];
+      state.searchError = '';
+      state.joinError = '';
+      state.editingPassenger = false;
+      render();
+      return;
+    }
+    if (action === 'refresh-passenger') {
+      try { await refreshPassengerProgress(true); }
+      catch (error) { state.joinError = error.message; render(); }
+      return;
+    }
     if (!state.session) return toast('먼저 이동을 만들어 주세요.');
     if (action === 'copy') {
       const url = state.credentials.joinBaseUrl + '/join/' + state.session.sessionId + '?invite=' + encodeURIComponent(state.credentials.inviteToken);
@@ -550,7 +650,9 @@ async function refreshSession(force = false) {
   if (!force && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
   try {
     const next = await api('/api/sessions/' + state.credentials.sessionId, {}, state.credentials.driverToken);
-    if (force || !state.session || next.version !== state.session.version) {
+    const joinBaseChanged = Boolean(next.joinBaseUrl && next.joinBaseUrl !== state.credentials.joinBaseUrl);
+    if (joinBaseChanged) saveCredentials({ ...state.credentials, joinBaseUrl: next.joinBaseUrl });
+    if (force || !state.session || next.version !== state.session.version || joinBaseChanged) {
       state.session = next;
       if (!state.showPhone) render();
     }
@@ -580,13 +682,13 @@ async function bindPassengerMap() {
     const maps = await getMapAdapter();
     if (!element.isConnected) return;
     passengerMapController = maps.createPassengerMap(element, state.pin, updatePassengerPoint);
-    if (passengerMapController.destroy) activeMaps.push(passengerMapController);
+    if (passengerMapController.destroy) activeDriverMaps.push(passengerMapController);
     else {
       const map = passengerMapController.map;
-      activeMaps.push({ destroy: () => map.remove() });
+      activeDriverMaps.push({ destroy: () => map.remove() });
     }
   } catch (_error) {
-    if (element.isConnected) element.innerHTML = '<div class="map-error">네이버 지도를 불러오지 못했어요.<br>Client ID, 등록 URL, Dynamic Map 설정을 확인해 주세요.</div>';
+    if (element.isConnected) element.innerHTML = mapLoadErrorMarkup();
   }
 }
 
@@ -599,6 +701,36 @@ async function initializePassenger() {
     sessionStorage.setItem('moagil-invite-' + state.joinId, state.invite);
     history.replaceState(null, '', '/join/' + state.joinId);
   }
+
+  const participantStore = 'moagil-participant-' + state.joinId;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(participantStore) || 'null');
+    if (saved?.passengerId && saved?.accessToken) {
+      state.passengerAccount = saved;
+      state.joined = true;
+      try {
+        await refreshPassengerProgress(true);
+      } catch (error) {
+        if ([401, 404].includes(error.status)) {
+          sessionStorage.removeItem(participantStore);
+          state.passengerAccount = null;
+          state.joined = false;
+        } else {
+          state.joinError = error.message;
+          render();
+          startPassengerPolling();
+          return;
+        }
+      }
+      if (state.passengerAccount) {
+        startPassengerPolling();
+        return;
+      }
+    }
+  } catch (_error) {
+    sessionStorage.removeItem(participantStore);
+  }
+
   render();
   try {
     if (!state.invite) throw new Error('초대 정보가 없어요. 차량 화면에서 새 QR을 스캔해 주세요.');
@@ -617,30 +749,84 @@ async function initializePassenger() {
 async function submitPassenger(event) {
   event.preventDefault();
   const form = event.target;
-  const nickname = form.elements.displayName.value.trim();
-  const name = state.avatarEmoji + ' ' + nickname;
+  const nickname = state.editingPassenger ? '' : form.elements.displayName.value.trim();
+  const name = state.editingPassenger ? state.passengerProgress.passenger.displayName : state.avatarEmoji + ' ' + nickname;
   const errorNode = byId('phone-error');
-  if (!nickname || Array.from(nickname).length > 18) { if (errorNode) errorNode.textContent = '이름을 확인해 주세요.'; return; }
+  if (!state.editingPassenger && (!nickname || Array.from(name).length > 20)) { if (errorNode) errorNode.textContent = '이름을 확인해 주세요.'; return; }
   state.pin.label = state.pin.label || '선택한 위치';
   state.saving = true;
   const button = form.querySelector('.phone-submit');
   button.disabled = true;
-  button.textContent = '등록 중…';
+  button.textContent = state.editingPassenger ? '저장 중…' : '등록 중…';
   try {
+    if (state.passengerAccount) {
+      const updated = await api(
+        '/api/sessions/' + state.joinId + '/passengers/' + state.passengerAccount.passengerId,
+        { method: 'PUT', body: JSON.stringify({ expectedVersion: state.passengerProgress.version, displayName: name, point: state.pin }) },
+        state.passengerAccount.accessToken,
+      );
+      state.passengerProgress = updated;
+      state.joinedName = name;
+      state.joinError = '';
+      state.editingPassenger = false;
+      state.saving = false;
+      render();
+      return;
+    }
+
     const keyStore = 'moagil-idempotency-' + state.joinId;
     const signature = JSON.stringify({ displayName: name, point: state.pin });
     const signatureStore = keyStore + '-signature';
     let key = sessionStorage.getItem(keyStore);
     if (!key || sessionStorage.getItem(signatureStore) !== signature) { key = randomToken(); sessionStorage.setItem(keyStore, key); sessionStorage.setItem(signatureStore, signature); }
-    await api('/api/sessions/' + state.joinId + '/passengers', { method: 'POST', body: JSON.stringify({ inviteToken: state.invite, displayName: name, point: state.pin, idempotencyKey: key }) });
+    const created = await api('/api/sessions/' + state.joinId + '/passengers', { method: 'POST', body: JSON.stringify({ inviteToken: state.invite, displayName: name, point: state.pin, idempotencyKey: key }) });
+    const participantAccount = { passengerId: created.passengerId, accessToken: key };
+    sessionStorage.setItem('moagil-participant-' + state.joinId, JSON.stringify(participantAccount));
     sessionStorage.removeItem(keyStore); sessionStorage.removeItem(signatureStore);
+    state.passengerAccount = participantAccount;
     state.joined = true; state.joinedName = name; state.saving = false;
-    render();
+    try {
+      await refreshPassengerProgress(true);
+    } catch (error) {
+      state.joinError = error.message;
+      render();
+    }
+    startPassengerPolling();
   } catch (error) {
     state.saving = false;
+    if (state.passengerAccount && error.status === 409) {
+      await refreshPassengerProgress(true).catch(() => {});
+      if (!state.passengerProgress?.canEdit) {
+        state.editingPassenger = false;
+        render();
+        return;
+      }
+    }
     if (errorNode) errorNode.textContent = error.message;
     button.disabled = false; button.textContent = '다시 시도';
   }
+}
+
+async function refreshPassengerProgress(forceRender = false) {
+  if (!state.passengerAccount) return null;
+  const previousVersion = state.passengerProgress?.version;
+  const next = await api(
+    '/api/sessions/' + state.joinId + '/passengers/' + state.passengerAccount.passengerId + '/progress',
+    {},
+    state.passengerAccount.accessToken,
+  );
+  state.passengerProgress = next;
+  state.joined = true;
+  state.joinError = '';
+  if (!state.editingPassenger && (forceRender || previousVersion !== next.version)) render();
+  return next;
+}
+
+function startPassengerPolling() {
+  if (passengerRefreshTimer) clearInterval(passengerRefreshTimer);
+  passengerRefreshTimer = setInterval(() => {
+    refreshPassengerProgress(false).catch(() => {});
+  }, 5000);
 }
 
 function randomToken() {
@@ -688,7 +874,12 @@ async function startApp() {
   sessionStorage.removeItem('moagil-parked');
   state.credentials = loadCredentials();
   if (state.credentials) {
-    try { state.session = await api('/api/sessions/' + state.credentials.sessionId, {}, state.credentials.driverToken); }
+    try {
+      state.session = await api('/api/sessions/' + state.credentials.sessionId, {}, state.credentials.driverToken);
+      if (state.session.joinBaseUrl && state.session.joinBaseUrl !== state.credentials.joinBaseUrl) {
+        saveCredentials({ ...state.credentials, joinBaseUrl: state.session.joinBaseUrl });
+      }
+    }
     catch (_error) { sessionStorage.removeItem('moagil-driver'); state.credentials = null; state.session = null; }
   }
   if (!state.credentials || !state.session) await newSession(false, true);

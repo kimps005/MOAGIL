@@ -12,7 +12,7 @@ function auth(token) {
 async function body(response, label) {
   let payload = {};
   try { payload = await response.json(); } catch {}
-  assert(response.ok(), `${label} failed with HTTP ${response.status()}${payload.error?.code ? ` (${payload.error.code})` : ''}`);
+  assert(response.ok(), `${label} failed with HTTP ${response.status()}${payload.error?.code ? ` (${payload.error.code})` : ''}${payload.error?.message ? `: ${payload.error.message}` : ''}`);
   return payload;
 }
 
@@ -26,6 +26,50 @@ async function snapshot(api, credentials) {
   return body(await api.get(`${baseUrl}/api/sessions/${credentials.sessionId}`, {
     headers: auth(credentials.driverToken), timeout: requestTimeout,
   }), 'driver snapshot');
+}
+
+async function postWithVersionRetry(api, credentials, suffix, data, label) {
+  let lastConflict = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest = await snapshot(api, credentials);
+    const response = await api.post(`${baseUrl}/api/sessions/${credentials.sessionId}/${suffix}`, {
+      headers: auth(credentials.driverToken),
+      data: { ...data, expectedVersion: latest.version },
+      timeout: requestTimeout,
+    });
+    if (response.status() === 409) {
+      const payload = await response.json().catch(() => ({}));
+      if (payload.error?.code === 'VERSION_CONFLICT') {
+        lastConflict = `attempt ${attempt + 1}: version ${latest.version}`;
+        continue;
+      }
+      assert.fail(`${label} failed with HTTP 409: ${JSON.stringify(payload)}`);
+    }
+    return body(response, label);
+  }
+  assert.fail(`${label} kept conflicting after refresh: ${lastConflict}`);
+}
+
+async function putWithVersionRetry(api, credentials, suffix, data, label) {
+  let lastConflict = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest = await snapshot(api, credentials);
+    const response = await api.put(`${baseUrl}/api/sessions/${credentials.sessionId}/${suffix}`, {
+      headers: auth(credentials.driverToken),
+      data: { ...data, expectedVersion: latest.version },
+      timeout: requestTimeout,
+    });
+    if (response.status() === 409) {
+      const payload = await response.json().catch(() => ({}));
+      if (payload.error?.code === 'VERSION_CONFLICT') {
+        lastConflict = `attempt ${attempt + 1}: version ${latest.version}`;
+        continue;
+      }
+      assert.fail(`${label} failed with HTTP 409: ${JSON.stringify(payload)}`);
+    }
+    return body(response, label);
+  }
+  assert.fail(`${label} kept conflicting after refresh: ${lastConflict}`);
 }
 
 async function addPassenger(api, credentials, displayName, point, key = crypto.randomBytes(18).toString('hex')) {
@@ -49,8 +93,60 @@ async function cancelIfOpen(api, credentials) {
   } catch {}
 }
 
+const kakaoSdkMock = `(() => {
+  function LatLng(lat, lon) { this.getLat = () => Number(lat); this.getLng = () => Number(lon); }
+  function Map(element, options = {}) {
+    this.element = element;
+    this.center = options.center || new LatLng(37.5665, 126.978);
+    element.dataset.mapProvider = 'kakao';
+    element.classList.add('kakao-map-rendered');
+    element.style.backgroundColor = '#e9edf5';
+  }
+  Map.prototype.addControl = Map.prototype.relayout = Map.prototype.setBounds = function() {};
+  Map.prototype.setCenter = function(point) { this.center = point; };
+  Map.prototype.panTo = function(point) { this.center = point; };
+  function Marker(options = {}) { this.position = options.position; this.map = options.map; }
+  Marker.prototype.setPosition = function(point) { this.position = point; };
+  Marker.prototype.getPosition = function() { return this.position; };
+  Marker.prototype.setMap = function(map) { this.map = map; };
+  function Overlay(options = {}) { this.options = options; }
+  Overlay.prototype.setMap = function(map) { this.map = map; };
+  function Polyline(options = {}) { this.options = options; }
+  Polyline.prototype.setMap = function(map) { this.map = map; };
+  function LatLngBounds() { this.points = []; }
+  LatLngBounds.prototype.extend = function(point) { this.points.push(point); };
+  const listeners = new WeakMap();
+  window.kakao = { maps: {
+    Map, LatLng, LatLngBounds, Marker, CustomOverlay: Overlay, Polyline,
+    MapTypeId: { ROADMAP: 'ROADMAP' },
+    ZoomControl: function() {}, ControlPosition: { RIGHT: 1 },
+    event: {
+      addListener(map, type, handler) {
+        const listener = () => handler({ latLng: new LatLng(map.center.getLat() + 0.001, map.center.getLng() + 0.001) });
+        map.element.addEventListener(type, listener);
+        const record = { map, type, listener };
+        listeners.set(handler, record);
+        return record;
+      },
+      removeListener(map, type, handler) {
+        const record = listeners.get(handler);
+        if (record) map.element.removeEventListener(type, record.listener);
+      },
+    },
+  } };
+})();`;
+
+async function installKakaoSdkMock(context) {
+  await context.route('**/v2/maps/sdk.js**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript; charset=utf-8',
+    body: kakaoSdkMock,
+  }));
+}
+
 async function verifyPassengerAndDriverUi(browser, api, testSessions) {
   const driver = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await installKakaoSdkMock(driver);
   const page = await driver.newPage();
   try {
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -73,6 +169,7 @@ async function verifyPassengerAndDriverUi(browser, api, testSessions) {
     assert(!('passengers' in joinInfo) && !('driverToken' in joinInfo), 'invite lookup exposed private driver data');
 
     const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await installKakaoSdkMock(phoneContext);
     try {
       const phone = await phoneContext.newPage();
       const joinUrl = `${baseUrl}/join/${credentials.sessionId}?invite=${encodeURIComponent(credentials.inviteToken)}`;
@@ -99,7 +196,8 @@ async function verifyPassengerAndDriverUi(browser, api, testSessions) {
       });
       const selected = features[0].geometry.coordinates;
       await phone.locator('[data-action="select-place"]').first().click();
-      await phone.locator('#pin-map.leaflet-container').waitFor({ timeout: 15_000 });
+      await phone.locator('#pin-map[data-map-provider="kakao"]').waitFor({ timeout: 15_000 });
+      assert.equal(await phone.locator('#pin-map.leaflet-container').count(), 0, 'destination screen must not display a fallback map');
 
       const mapBox = await phone.locator('#pin-map').boundingBox();
       assert(mapBox && mapBox.width > 180, 'destination map did not initialize');
@@ -114,8 +212,8 @@ async function verifyPassengerAndDriverUi(browser, api, testSessions) {
       await phone.locator('#display-name').fill('E2E 수연');
       await phone.locator('.phone-submit').click();
       assert.equal((await registration).status(), 201, 'passenger registration');
-      await phone.locator('.passenger-result').waitFor();
-      assert.match(await phone.locator('.passenger-result').innerText(), /E2E 수연/);
+      await phone.locator('.passenger-progress-card').waitFor();
+      assert.match(await phone.locator('.passenger-progress-identity strong').innerText(), /E2E 수연/);
       assert(registeredPoint, 'registration request did not include the selected pin');
       assert(Math.abs(registeredPoint.lat - selected[1]) > 0.00001 || Math.abs(registeredPoint.lon - selected[0]) > 0.00001,
         'moving the map pin did not change the submitted coordinates');
@@ -126,7 +224,7 @@ async function verifyPassengerAndDriverUi(browser, api, testSessions) {
     await page.locator('.passenger-name').filter({ hasText: 'E2E 수연' }).waitFor({ timeout: 30_000 });
     await page.locator('.route-panel').waitFor({ timeout: requestTimeout });
     await page.waitForFunction(() => document.querySelector('.route-meta')?.textContent.includes('1가지 순서 비교'), { timeout: requestTimeout });
-    assert.match(await page.locator('.route-panel .mock-pill').innerText(), /실제 도로 경로/);
+    assert.match(await page.locator('.route-panel .mock-pill').innerText(), /Kakao Navi 실시간 경로/);
 
     const start = page.locator('[data-action="start"]');
     await start.waitFor();
@@ -200,37 +298,27 @@ async function verifyApiFlows(api, testSessions) {
 
   current = await snapshot(api, credentials);
   const finalPoint = { lat: 37.5100, lon: 126.9500, label: 'E2E 운전자 목적지' };
-  current = await body(await api.put(`${baseUrl}/api/sessions/${credentials.sessionId}/settings`, {
-    headers: auth(credentials.driverToken),
-    data: { expectedVersion: current.version, startPoint: current.startPoint, finalPoint, priorityPassengerId: null },
-    timeout: requestTimeout,
-  }), 'route settings');
+  current = await putWithVersionRetry(api, credentials, 'settings', {
+    startPoint: current.startPoint, finalPoint, priorityPassengerId: null,
+  }, 'route settings');
 
   const routeStart = Date.now();
-  current = await body(await api.post(`${baseUrl}/api/sessions/${credentials.sessionId}/plan`, {
-    headers: auth(credentials.driverToken), data: { expectedVersion: current.version }, timeout: requestTimeout,
-  }), '24-route plan');
+  current = await postWithVersionRetry(api, credentials, 'plan', {}, '24-route plan');
   assert.equal(current.routeSnapshot.evaluatedCount, 24, 'four unpinned stops must compare 24 orders');
   assert(current.routeSnapshot.distanceM > 0 && current.routeSnapshot.durationMs > 0, 'real-road route metrics');
-  assert.match(current.routeSnapshot.providerVersion, /osrm/i, 'route plan must use the real-road provider');
+  assert.match(current.routeSnapshot.providerVersion, /kakao-mobility/i, 'route plan must use Kakao Mobility directions');
   const initialPlanSeconds = (Date.now() - routeStart) / 1000;
 
   const priority = passengers[1];
-  current = await body(await api.put(`${baseUrl}/api/sessions/${credentials.sessionId}/settings`, {
-    headers: auth(credentials.driverToken),
-    data: { expectedVersion: current.version, startPoint: current.startPoint, finalPoint: current.finalPoint, priorityPassengerId: priority.id },
-    timeout: requestTimeout,
-  }), 'priority setting');
-  current = await body(await api.post(`${baseUrl}/api/sessions/${credentials.sessionId}/plan`, {
-    headers: auth(credentials.driverToken), data: { expectedVersion: current.version }, timeout: requestTimeout,
-  }), 'six-route priority plan');
+  current = await putWithVersionRetry(api, credentials, 'settings', {
+    startPoint: current.startPoint, finalPoint: current.finalPoint, priorityPassengerId: priority.id,
+  }, 'priority setting');
+  current = await postWithVersionRetry(api, credentials, 'plan', {}, 'six-route priority plan');
   assert.equal(current.routeSnapshot.evaluatedCount, 6, 'a pinned first stop must reduce the four-stop comparison to six orders');
   assert.equal(current.selectedOrder[0], priority.id, 'the pinned stop must remain first');
 
   const manualOrder = [priority.id, passengers[3].id, passengers[2].id, passengers[0].id];
-  current = await body(await api.post(`${baseUrl}/api/sessions/${credentials.sessionId}/select-order`, {
-    headers: auth(credentials.driverToken), data: { expectedVersion: current.version, order: manualOrder }, timeout: requestTimeout,
-  }), 'manual order');
+  current = await postWithVersionRetry(api, credentials, 'select-order', { order: manualOrder }, 'manual order');
   assert.deepEqual(current.selectedOrder, manualOrder, 'manual order selection');
   assert.equal(current.routeSnapshot.distanceM > 0, true, 'manual order road estimate');
 
@@ -265,7 +353,7 @@ async function verifyApiFlows(api, testSessions) {
     headers: auth(credentials.driverToken), data: { expectedVersion: current.version }, timeout: requestTimeout,
   }), 'trip completion');
   assert.equal(current.state, 'COMPLETED');
-  console.log(`E2E PASS: real OSRM roads, 24 → 6 orders, fixed first stop, manual order, map tile proxy, sequential drop-offs (24-order plan ${initialPlanSeconds.toFixed(2)}s)`);
+  console.log(`E2E PASS: real Kakao roads, 24 → 6 orders, fixed first stop, manual order, map tile proxy, sequential drop-offs (24-order plan ${initialPlanSeconds.toFixed(2)}s)`);
 
   const concurrent = await createSession(api);
   testSessions.push(concurrent);
@@ -292,7 +380,7 @@ async function main() {
     const health = await body(await api.get(`${baseUrl}/api/health`, { timeout: requestTimeout }), 'server health');
     assert.equal(health.status, 'ok');
     const config = await body(await api.get(`${baseUrl}/api/config`, { timeout: requestTimeout }), 'server config');
-    assert(['osrm', 'naver', 'mock'].includes(config.routingProvider));
+    assert.equal(config.routingProvider, 'kakao', 'the server must always use Kakao Mobility');
     await verifyPassengerAndDriverUi(browser, api, testSessions);
     await verifyApiFlows(api, testSessions);
   } finally {

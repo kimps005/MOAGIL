@@ -29,6 +29,7 @@ import kr.moagil.vehicle.BuildConfig
 
 data class DriverUiState(
     val apiBaseUrl: String = "http://10.0.2.2:8080",
+    val kakaoMapJavascriptKey: String = "",
     val credentials: DriverCredentials? = null,
     val session: DriverSession? = null,
     val connected: Boolean? = null,
@@ -62,6 +63,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     private var originSyncJob: Job? = null
     private var autoPlanAttemptKey: String? = null
     private var vehicleContextStarted = false
+    private var pleosCoveredPassengerUntil = -1
+    private var pleosSegmentIncludesFinalDestination = false
 
     init {
         if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) startVehicleContext()
@@ -135,10 +138,17 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         }
         val baseUrl = _state.value.apiBaseUrl.trim().trimEnd('/')
         require(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) { "서버 주소는 http:// 또는 https://로 시작해야 합니다." }
-        val (credentials, demoSession) = MoagilApi(baseUrl).createSession(demo)
+        val api = MoagilApi(baseUrl)
+        val (credentials, demoSession) = api.createSession(demo)
+        val kakaoMapJavascriptKey = runCatching { api.kakaoMapJavascriptKey() }
+            .getOrNull()
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: BuildConfig.KAKAO_MAP_JAVASCRIPT_KEY
         vault.save(credentials)
         _state.value = _state.value.copy(
             apiBaseUrl = baseUrl,
+            kakaoMapJavascriptKey = kakaoMapJavascriptKey,
             credentials = credentials,
             session = demoSession,
             connected = true,
@@ -164,8 +174,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setPriority(passengerId: String?) = driverAction {
-        ensureParked()
         val session = requireSession()
+        check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 우선 하차 위치를 지정할 수 있습니다." }
         val final = finalPointOrNull()
         val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(requireCredentials(), session, final, passengerId)
         acceptSession(updated, "우선 하차 설정을 저장했습니다. 경로를 다시 계산해 주세요.")
@@ -220,8 +230,10 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             acceptSession(session, "현재 차량 위치 기준으로 순서를 다시 계산했습니다.")
         }
         val updated = MoagilApi(credentials.apiBaseUrl).start(credentials, session)
-        acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 첫 하차 목적지를 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
-        requestCurrentNavigation()
+        pleosCoveredPassengerUntil = -1
+        pleosSegmentIncludesFinalDestination = false
+        acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 다음 정차 구간을 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
+        requestCurrentNavigation(force = true)
     }
 
     fun completeCurrentStop() = driverAction {
@@ -265,6 +277,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun disconnectLocal() {
         pollJob?.cancel()
         vault.clear()
+        pleosCoveredPassengerUntil = -1
+        pleosSegmentIncludesFinalDestination = false
         viewModelScope.launch { navigation.close() }
         _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
     }
@@ -273,34 +287,59 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         ensureParked()
         check(requireSession().state == "ACTIVE") { "먼저 모의 안내를 시작해 주세요." }
         check(navigation.failNextRequest()) { "안내 실패 시연은 mock 빌드에서만 사용할 수 있습니다." }
-        requestCurrentNavigation()
+        requestCurrentNavigation(force = true)
     }
 
     fun retryNavigation() = driverAction {
         ensureParked()
         check(requireSession().state == "ACTIVE") { "현재 모의 안내가 없습니다." }
-        requestCurrentNavigation()
+        requestCurrentNavigation(force = true)
     }
 
-    private suspend fun requestCurrentNavigation() {
+    private suspend fun requestCurrentNavigation(force: Boolean = false) {
         val session = _state.value.session ?: return
-        val order = session.selectedOrder
-        val point = when {
-            session.state != "ACTIVE" -> null
-            session.activeIndex < order.size -> session.passengers.firstOrNull { it.id == order[session.activeIndex] }?.point
-            session.finalPoint != null -> session.finalPoint
-            else -> null
+        val remainingPassengerStops = if (session.state == "ACTIVE") {
+            session.selectedOrder.drop(session.activeIndex)
+                .mapNotNull { id -> session.passengers.firstOrNull { it.id == id }?.point }
+        } else {
+            emptyList()
         }
-        if (point == null) {
+        val remainingStops = remainingPassengerStops + listOfNotNull(session.finalPoint)
+        if (remainingStops.isEmpty()) {
             _state.value = _state.value.copy(navigationMessage = "모든 하차를 마쳤습니다. 이동 종료를 확인해 주세요.", navigationConfirmed = true)
             return
         }
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION && !force) {
+            when {
+                session.activeIndex < pleosCoveredPassengerUntil -> {
+                    _state.value = _state.value.copy(
+                        navigationMessage = "Pleos 내비 구간 안내 중 · 다음 하차 ${remainingPassengerStops.firstOrNull()?.label ?: "최종 목적지"}",
+                        navigationConfirmed = true,
+                    )
+                    return
+                }
+                session.activeIndex >= session.selectedOrder.size && pleosSegmentIncludesFinalDestination -> {
+                    _state.value = _state.value.copy(
+                        navigationMessage = "Pleos 내비 최종 목적지 안내 중 · ${session.finalPoint?.label}",
+                        navigationConfirmed = true,
+                    )
+                    return
+                }
+            }
+        }
+        val nextStop = remainingStops.first()
+        val routeSegment = remainingStops.take(3)
+        val destination = routeSegment.last()
+        val waypoints = routeSegment.dropLast(1)
+        val segmentPassengerCount = minOf(remainingPassengerStops.size, routeSegment.size)
+        val includesFinalDestination = routeSegment.size > segmentPassengerCount
+        val segmentLabel = if (routeSegment.size == 1) nextStop.label else "${nextStop.label}부터 ${destination.label}까지 ${routeSegment.size}곳"
         val startedAt = SystemClock.elapsedRealtime()
         _state.value = _state.value.copy(
             navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                "Pleos NaviHelper 경로 요청 중 · ${point.label} · 0.0초 경과"
+                "Pleos 내비 다음 구간 요청 중 · $segmentLabel · 0.0초 경과"
             } else {
-                "모의 내비 안내 요청 중… · ${point.label}"
+                "모의 내비 안내 요청 중… · $segmentLabel"
             },
             navigationConfirmed = false,
         )
@@ -309,23 +348,30 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                 delay(200)
                 val elapsed = SystemClock.elapsedRealtime() - startedAt
                 _state.value = _state.value.copy(
-                    navigationMessage = "Pleos NaviHelper 경로 요청 중 · ${point.label} · ${formatElapsed(elapsed)}초 경과",
+                    navigationMessage = "Pleos 내비 다음 구간 요청 중 · $segmentLabel · ${formatElapsed(elapsed)}초 경과",
                 )
             }
         } else null
         val result = try {
-            navigation.navigateTo(point)
+            navigation.navigateRoute(destination, waypoints)
         } finally {
             elapsedTicker?.cancel()
         }
+        if (BuildConfig.PLEOS_NATIVE_NAVIGATION && result !is NavigationResult.Rejected && result != NavigationResult.Unavailable) {
+            pleosCoveredPassengerUntil = session.activeIndex + segmentPassengerCount
+            pleosSegmentIncludesFinalDestination = includesFinalDestination
+        }
         _state.value = when (result) {
-            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · ${point.label} · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
-            is NavigationResult.Completed -> _state.value.copy(
-                navigationMessage = "Pleos 내비 경로 탐색 완료 콜백 확인 · ${point.label} · ${formatElapsed(result.elapsedMs)}초",
-                navigationConfirmed = true,
-            )
+            NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · $segmentLabel · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
+            is NavigationResult.Completed -> {
+                _state.value.copy(
+                    navigationMessage = "Pleos 내비 경로 탐색 완료 · 다음 하차 ${nextStop.label} · 구간 ${routeSegment.size}곳 · ${formatElapsed(result.elapsedMs)}초",
+                    navigationConfirmed = true,
+                )
+            }
             is NavigationResult.DestinationConfirmed -> _state.value.copy(
-                navigationMessage = "Pleos 내비 목적지 수신 확인 · ${point.label} · ${formatElapsed(result.elapsedMs)}초 · ${result.distanceM}m / ${result.durationSec / 60}분",
+                navigationMessage = "Pleos 내비 경로 정보 확인 · 다음 하차 ${nextStop.label}" +
+                    " · ${formatElapsed(result.elapsedMs)}초 · ${result.distanceM}m / ${result.durationSec / 60}분",
                 navigationConfirmed = true,
             )
             is NavigationResult.Rejected -> {

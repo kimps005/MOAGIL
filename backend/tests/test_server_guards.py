@@ -43,6 +43,29 @@ class ServerGuardTests(unittest.TestCase):
         value.server = SimpleNamespace(server_port=8080)
         return value
 
+    def test_map_config_never_selects_an_alternative_provider(self):
+        class ResponseHandler(Handler):
+            def _path(self):
+                return "/api/config"
+
+            def _send_json(self, status, payload, extra_headers=None):
+                return status, payload
+
+        handler = object.__new__(ResponseHandler)
+        with patch.dict(os.environ, {
+            "MOAGIL_KAKAO_JAVASCRIPT_KEY": "",
+            "MOAGIL_NAVER_CLIENT_ID": "configured-naver-id",
+        }):
+            status, payload = handler.do_GET()
+
+        self.assertEqual(200, status)
+        self.assertEqual("kakao", payload["mapProvider"])
+
+    def test_routing_provider_is_always_kakao_even_when_a_fallback_is_configured(self):
+        for configured in ("", "osrm", "naver", "mock"):
+            with self.subTest(configured=configured), patch.dict(os.environ, {"MOAGIL_ROUTING_PROVIDER": configured}):
+                self.assertEqual("kakao", server.routing_provider())
+
     def test_mobile_join_host_accepts_a_configured_lan_or_domain_address(self):
         for base in ("http://192.168.0.10:8080", "https://moagil.example/"):
             with self.subTest(base=base), patch.dict(os.environ, {"MOAGIL_PUBLIC_BASE_URL": base}):

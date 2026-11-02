@@ -1,4 +1,4 @@
-"""Dependency-free HTTP/SQLite server for the MOAGIL P0 demonstration."""
+"""MOAGIL HTTP API with local SQLite and optional hosted PostgreSQL storage."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import re
 import secrets
 import socket
 import sqlite3
-import sys
 import threading
 import time
 import uuid
@@ -27,6 +26,10 @@ from urllib.request import Request, urlopen
 
 from domain import RouteError, plan_routes, validate_point, utc_now, evaluate_route
 from routing import (
+    KAKAO_ATTRIBUTION,
+    KAKAO_DATA_SOURCE,
+    KAKAO_NOTE,
+    KAKAO_PROVIDER_VERSION,
     OSRM_ATTRIBUTION,
     OSRM_NOTE,
     OSRM_PROVIDER_VERSION,
@@ -34,6 +37,8 @@ from routing import (
     NAVER_NOTE,
     NAVER_PROVIDER_VERSION,
     RoutingError,
+    KakaoMatrixEvaluator,
+    fetch_kakao_route,
     fetch_naver_route,
     fetch_route,
     matrix_evaluator,
@@ -54,7 +59,7 @@ def _load_env_file() -> None:
             continue
         name, value = line.split("=", 1)
         name, value = name.strip(), value.strip()
-        if name and name.replace("_", "").isalnum() and name[0].isalpha() and name not in os.environ:
+        if name and name.replace("_", "").isalnum() and name[0].isalpha() and not os.environ.get(name, "").strip():
             if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
                 value = value[1:-1]
             os.environ[name] = value
@@ -77,6 +82,8 @@ _geocode_lock = threading.Lock()
 _geocode_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _geocode_last_request = 0.0
 MAP_TILE_CACHE_DIR = DATA_DIR / "map-tiles"
+if os.environ.get("VERCEL") == "1":
+    MAP_TILE_CACHE_DIR = Path("/tmp/moagil/map-tiles")
 MAP_TILE_DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60
 MAP_TILE_MAX_BYTES = 2 * 1024 * 1024
 MAP_TILE_MAX_ZOOM = 19
@@ -149,6 +156,127 @@ def _photon_search(query: str) -> dict:
         while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
             _geocode_cache.popitem(last=False)
         return result
+
+
+def _kakao_local_request(endpoint: str, query: str) -> list[dict]:
+    api_key = os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip()
+    if not api_key:
+        raise ApiError(503, "GEOCODER_NOT_CONFIGURED", "카카오 장소 검색 키를 서버에 설정해 주세요.")
+
+    url = f"https://dapi.kakao.com/v2/local/search/{endpoint}.json?" + urlencode({
+        "query": query,
+        "size": 6,
+    })
+    request = Request(url, headers={
+        "Authorization": f"KakaoAK {api_key}",
+        "Accept": "application/json",
+        "User-Agent": "MOAGIL-Prototype/1.0 (Kakao Local search)",
+    })
+    try:
+        with urlopen(request, timeout=8) as response:
+            payload = json.load(response)
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            raise ApiError(502, "GEOCODER_AUTH_FAILED", "카카오 로컬 검색 인증 키나 API 사용 설정을 확인해 주세요.") from exc
+        raise ApiError(502, "GEOCODER_UNAVAILABLE", "카카오 장소 검색을 불러오지 못했어요. 잠시 후 다시 검색해 주세요.") from exc
+    except (OSError, TimeoutError, URLError, json.JSONDecodeError) as exc:
+        raise ApiError(502, "GEOCODER_UNAVAILABLE", "카카오 장소 검색을 불러오지 못했어요. 잠시 후 다시 검색해 주세요.") from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("documents"), list):
+        raise ApiError(502, "GEOCODER_INVALID_RESPONSE", "카카오 검색 결과를 읽지 못했어요. 다시 검색해 주세요.")
+    return payload["documents"]
+
+
+def _kakao_feature(document: dict, *, address_result: bool) -> dict | None:
+    address = document.get("address") if isinstance(document.get("address"), dict) else {}
+    road_address = document.get("road_address") if isinstance(document.get("road_address"), dict) else {}
+    try:
+        longitude = float(document.get("x"))
+        latitude = float(document.get("y"))
+    except (TypeError, ValueError):
+        return None
+    if not (-180 <= longitude <= 180 and -90 <= latitude <= 90):
+        return None
+
+    address_name = document.get("address_name") or address.get("address_name") or ""
+    road_address_name = document.get("road_address_name") or road_address.get("address_name") or ""
+    name = document.get("place_name") or address_name or road_address_name or "검색 위치"
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [longitude, latitude]},
+        "properties": {
+            "name": name,
+            "address": address_name,
+            "roadAddress": road_address_name,
+            "district": address.get("region_3depth_name") or road_address.get("region_3depth_name") or "",
+            "city": address.get("region_2depth_name") or road_address.get("region_2depth_name") or "",
+            "state": address.get("region_1depth_name") or road_address.get("region_1depth_name") or "",
+            "country": "대한민국",
+            "source": "kakao-address" if address_result else "kakao-keyword",
+        },
+    }
+
+
+def _kakao_local_search(query: str) -> dict:
+    global _geocode_last_request
+    normalized = " ".join(query.split())
+    cache_key = f"kakao:{normalized.casefold()}"
+    with _geocode_lock:
+        now = time.monotonic()
+        cached = _geocode_cache.get(cache_key)
+        if cached and now - cached[0] < GEOCODE_CACHE_TTL_SECONDS:
+            _geocode_cache.move_to_end(cache_key)
+            return cached[1]
+        if cached:
+            del _geocode_cache[cache_key]
+
+        wait = GEOCODE_MIN_INTERVAL_SECONDS - (now - _geocode_last_request)
+        if wait > 0:
+            time.sleep(wait)
+        _geocode_last_request = time.monotonic()
+
+        address_like = bool(re.search(
+            r"\d|(?:특별시|광역시|자치시|자치도|도|시|군|구|읍|면|동|리|대로|로|길|번지)(?=\s|$)",
+            normalized,
+        ))
+        preferred = ("address", True) if address_like else ("keyword", False)
+        alternate = ("keyword", False) if address_like else ("address", True)
+        documents = _kakao_local_request(preferred[0], normalized)
+        address_result = preferred[1]
+        if not documents:
+            documents = _kakao_local_request(alternate[0], normalized)
+            address_result = alternate[1]
+
+        features = []
+        seen = set()
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            feature = _kakao_feature(document, address_result=address_result)
+            if feature is None:
+                continue
+            coordinates = feature["geometry"]["coordinates"]
+            name = feature["properties"]["name"].casefold()
+            key = (name, round(coordinates[0], 6), round(coordinates[1], 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            features.append(feature)
+            if len(features) >= 6:
+                break
+
+        result = {"features": features}
+        _geocode_cache[cache_key] = (time.monotonic(), result)
+        _geocode_cache.move_to_end(cache_key)
+        while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
+            _geocode_cache.popitem(last=False)
+        return result
+
+
+def _search_places(query: str) -> dict:
+    if os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip():
+        return _kakao_local_search(query)
+    return _photon_search(query)
 
 
 def _map_tile_expiry(headers, now: float, previous: dict | None = None) -> tuple[dict, bool]:
@@ -252,7 +380,65 @@ def _load_map_tile(zoom: int, x: int, y: int) -> tuple[bytes, dict]:
         return payload, metadata
 
 
-def _connect() -> sqlite3.Connection:
+class _PostgresConnection:
+    """Small SQLite-shaped adapter for the session API's PostgreSQL queries."""
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._manual_transaction = False
+
+    def execute(self, statement: str, parameters=()):
+        if statement.strip().upper() == "BEGIN IMMEDIATE":
+            cursor = self._connection.execute("BEGIN")
+            self._manual_transaction = True
+            # Match SQLite's serialized write transactions so version checks and
+            # session capacity limits stay correct when several phones write at once.
+            self._connection.execute("SELECT pg_advisory_xact_lock(%s)", (781122409,))
+            return cursor
+        return self._connection.execute(statement.replace("?", "%s"), parameters)
+
+    def executescript(self, script: str):
+        cursor = None
+        for statement in script.split(";"):
+            if statement.strip():
+                cursor = self.execute(statement)
+        return cursor
+
+    def commit(self):
+        if self._manual_transaction:
+            self._connection.execute("COMMIT")
+            self._manual_transaction = False
+
+    def rollback(self):
+        if self._manual_transaction:
+            self._connection.execute("ROLLBACK")
+            self._manual_transaction = False
+
+    def close(self):
+        self._connection.close()
+
+
+def _connect():
+    database_url = (
+        os.environ.get("MOAGIL_DATABASE_URL", "").strip()
+        or os.environ.get("DATABASE_URL", "").strip()
+        or os.environ.get("POSTGRES_URL", "").strip()
+    )
+    if database_url:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        connection = psycopg.connect(
+            database_url,
+            connect_timeout=8,
+            row_factory=dict_row,
+            autocommit=True,
+            prepare_threshold=None,
+            sslmode="require",
+        )
+        return _PostgresConnection(connection)
+    if os.environ.get("VERCEL") == "1":
+        raise RuntimeError("Set MOAGIL_DATABASE_URL to the Supabase PostgreSQL connection string")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=8, isolation_level=None)
     conn.row_factory = sqlite3.Row
@@ -307,6 +493,21 @@ def _init_db() -> None:
         CREATE INDEX IF NOT EXISTS passengers_session_idx ON passengers(session_id, created_at);
         """)
         db.execute("DELETE FROM sessions WHERE expires_at < ?", ((datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(),))
+    global _db_ready
+    _db_ready = True
+
+
+_db_ready = False
+_db_ready_lock = threading.Lock()
+
+
+def _ensure_db_ready() -> None:
+    global _db_ready
+    if _db_ready:
+        return
+    with _db_ready_lock:
+        if not _db_ready:
+            _init_db()
 
 
 def _json(value: str | None, fallback=None):
@@ -377,7 +578,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin" if static_page else "no-referrer")
         self.send_header("Cache-Control", cache_control)
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://oapi.map.naver.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://dapi.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 
     def _send_json(self, status: int, payload: dict, extra_headers: dict[str, str] | None = None):
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -474,17 +675,85 @@ class Handler(BaseHTTPRequestHandler):
             for p in db.execute("SELECT id,display_name,point FROM passengers WHERE session_id=? ORDER BY created_at,id", (session_id,)).fetchall()
         ]
 
+    def _participant(self, db, session_id: str, passenger_id: str):
+        row = _session_row(db, session_id)
+        if row is None:
+            raise ApiError(404, "SESSION_NOT_FOUND", "이동 정보를 찾을 수 없습니다")
+        passenger = db.execute(
+            "SELECT id,display_name,point,idempotency_hash FROM passengers WHERE id=? AND session_id=?",
+            (passenger_id, session_id),
+        ).fetchone()
+        token = self.headers.get("Authorization", "")
+        token = token[7:] if token.startswith("Bearer ") else ""
+        if passenger is None or not token or not _constant_time_hash_equal(token, passenger["idempotency_hash"]):
+            raise ApiError(401, "PARTICIPANT_UNAUTHORIZED", "참가자 화면 인증이 필요합니다")
+        return row, passenger
+
+    def _participant_progress(self, row, passenger):
+        route = _json(row["route_snapshot"], {}) or {}
+        order = _json(row["selected_order"], []) or route.get("order", [])
+        stop_index = order.index(passenger["id"]) if passenger["id"] in order else None
+        active_index = row["active_index"]
+        leg_durations = route.get("legDurationsMs")
+        if not isinstance(leg_durations, list) or any(not isinstance(value, int) or value < 0 for value in leg_durations):
+            leg_durations = None
+
+        estimated_duration = None
+        remaining_duration = None
+        if stop_index is not None and leg_durations is not None and len(leg_durations) > stop_index:
+            estimated_duration = sum(leg_durations[:stop_index + 1])
+            if row["state"] == "ACTIVE":
+                if stop_index < active_index:
+                    remaining_duration = 0
+                elif len(leg_durations) > stop_index:
+                    remaining_duration = sum(leg_durations[active_index:stop_index + 1])
+            elif row["state"] == "COMPLETED":
+                remaining_duration = 0
+
+        if row["state"] == "ACTIVE":
+            status = "DROPPED_OFF" if stop_index is not None and stop_index < active_index else "CURRENT_STOP" if stop_index == active_index else "UPCOMING"
+        elif row["state"] == "PLANNED":
+            status = "READY"
+        elif row["state"] == "COMPLETED":
+            status = "TRIP_COMPLETE"
+        elif row["state"] == "CANCELLED":
+            status = "CANCELLED"
+        elif row["state"] == "EXPIRED":
+            status = "EXPIRED"
+        else:
+            status = "COLLECTING"
+
+        return {
+            "version": row["version"],
+            "sessionState": row["state"],
+            "status": status,
+            "stopNumber": stop_index + 1 if stop_index is not None else None,
+            "totalStops": len(order),
+            "estimatedDurationMs": estimated_duration,
+            "remainingDurationMs": remaining_duration,
+            "estimatedTimeApproximate": bool(route.get("legDurationsApproximate", False)),
+            "routeNote": route.get("note"),
+            "canEdit": row["state"] in ("COLLECTING", "PLANNED"),
+            "passenger": {
+                "id": passenger["id"],
+                "displayName": passenger["display_name"],
+                "point": _json(passenger["point"]),
+            },
+        }
+
     def do_GET(self):
         try:
+            _ensure_db_ready()
             path = self._path()
             if path == "/api/health":
                 return self._send_json(200, {"status": "ok", "mode": routing_provider()})
             if path == "/api/config":
-                map_client_id = os.environ.get("MOAGIL_NAVER_CLIENT_ID", "").strip()
+                kakao_map_key = os.environ.get("MOAGIL_KAKAO_JAVASCRIPT_KEY", "").strip()
                 return self._send_json(200, {
                     "routingProvider": routing_provider(),
-                    "mapProvider": "naver" if map_client_id else "osm",
-                    "naverMapClientId": map_client_id,
+                    "mapProvider": "kakao",
+                    "kakaoMapJavascriptKey": kakao_map_key,
+                    "geocoderProvider": "kakao" if os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip() else "photon",
                 })
             if path == "/api/geocode":
                 query = parse_qs(urlsplit(self.path).query).get("q", [""])[0].strip()
@@ -492,9 +761,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, "QUERY_TOO_SHORT", "장소를 두 글자 이상 입력해 주세요.")
                 if len(query) > 80:
                     raise ApiError(400, "QUERY_TOO_LONG", "검색어는 80자 이내로 입력해 주세요.")
-                return self._send_json(200, _photon_search(query))
+                return self._send_json(200, _search_places(query))
             if path.startswith("/api/sessions/"):
                 parts = path.split("/")
+                if len(parts) == 7 and parts[4] == "passengers" and parts[6] == "progress":
+                    with _db_connection() as db:
+                        row, passenger = self._participant(db, parts[3], parts[5])
+                        return self._send_json(200, self._participant_progress(row, passenger))
                 if len(parts) == 8 and parts[4] == "map-tiles" and parts[7].endswith(".png"):
                     try:
                         zoom, x, y = int(parts[5]), int(parts[6]), int(parts[7][:-4])
@@ -511,7 +784,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
                 with _db_connection() as db:
                     row = self._driver(db, parts[3])
-                    return self._send_json(200, _snapshot(db, row))
+                    snapshot = _snapshot(db, row)
+                    snapshot["joinBaseUrl"] = self._join_base()
+                    return self._send_json(200, snapshot)
             self._serve_static(path)
         except ApiError as error:
             self._error(error)
@@ -522,6 +797,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            _ensure_db_ready()
             path = self._path()
             body = self._body()
             parts = path.split("/")
@@ -551,7 +827,7 @@ class Handler(BaseHTTPRequestHandler):
                     with _db_connection() as db:
                         row = _session_row(db, session_id)
                         self._verify_invite(row, body.get("inviteToken"))
-                        count = db.execute("SELECT COUNT(*) FROM passengers WHERE session_id=?", (session_id,)).fetchone()[0]
+                        count = db.execute("SELECT COUNT(*) AS count FROM passengers WHERE session_id=?", (session_id,)).fetchone()["count"]
                         if row["state"] not in ("COLLECTING", "PLANNED"):
                             raise ApiError(409, "SESSION_CLOSED", "이 이동은 더 이상 참가자를 받지 않습니다")
                         return self._send_json(200, {"state": row["state"], "remaining": max(0, 4-count), "expiresAt": row["expires_at"]})
@@ -583,8 +859,37 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         try:
+            _ensure_db_ready()
             parts = self._path().split("/")
             body = self._body()
+            if len(parts) == 6 and parts[1:3] == ["api", "sessions"] and parts[4] == "passengers":
+                self._limit_join_attempts()
+                session_id, passenger_id = parts[3], parts[5]
+                name = str(body.get("displayName", "")).strip()
+                if not 1 <= len(name) <= 20:
+                    raise ApiError(422, "INVALID_NAME", "별명은 1~20자로 입력해 주세요")
+                point = validate_point(body.get("point"))
+                with _db_connection() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    row, passenger = self._participant(db, session_id, passenger_id)
+                    self._check_version(row, self._expected_version(body))
+                    if row["state"] not in ("COLLECTING", "PLANNED"):
+                        raise ApiError(409, "SESSION_ACTIVE", "이동을 시작한 뒤에는 목적지를 수정할 수 없습니다")
+                    payload_hash = _hash(json.dumps({"displayName": name, "point": point}, sort_keys=True, ensure_ascii=False))
+                    db.execute(
+                        "UPDATE passengers SET display_name=?,point=?,payload_hash=? WHERE id=? AND session_id=?",
+                        (name, json.dumps(point, ensure_ascii=False), payload_hash, passenger_id, session_id),
+                    )
+                    db.execute(
+                        "UPDATE sessions SET state='COLLECTING',version=version+1,selected_order=NULL,route_snapshot=NULL,active_index=0 WHERE id=?",
+                        (session_id,),
+                    )
+                    updated = _session_row(db, session_id)
+                    passenger = db.execute(
+                        "SELECT id,display_name,point,idempotency_hash FROM passengers WHERE id=? AND session_id=?",
+                        (passenger_id, session_id),
+                    ).fetchone()
+                    return self._send_json(200, self._participant_progress(updated, passenger))
             if len(parts) != 5 or parts[4] != "settings":
                 raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
             session_id = parts[3]
@@ -612,6 +917,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         try:
+            _ensure_db_ready()
             parts = self._path().split("/")
             if len(parts) != 6 or parts[4] != "passengers":
                 raise ApiError(404, "NOT_FOUND", "요청 경로를 찾을 수 없습니다")
@@ -623,8 +929,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._check_version(row, int(expected))
                 if row["state"] not in ("COLLECTING", "PLANNED"):
                     raise ApiError(409, "SESSION_ACTIVE", "이동을 시작한 뒤에는 동승자를 삭제할 수 없습니다")
-                db.execute("DELETE FROM passengers WHERE id=? AND session_id=?", (passenger_id, session_id))
-                if db.total_changes == 0:
+                deleted = db.execute("DELETE FROM passengers WHERE id=? AND session_id=?", (passenger_id, session_id))
+                if deleted.rowcount == 0:
                     raise ApiError(404, "PASSENGER_NOT_FOUND", "동승자를 찾을 수 없습니다")
                 db.execute("UPDATE sessions SET state='COLLECTING',version=version+1,priority_id=CASE WHEN priority_id=? THEN NULL ELSE priority_id END,selected_order=NULL,route_snapshot=NULL WHERE id=?", (passenger_id, session_id))
                 row = _session_row(db, session_id)
@@ -650,6 +956,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(422, "INVALID_NAME", "별명은 1~20자로 입력해 주세요")
         point = validate_point(body.get("point"))
         invite = body.get("inviteToken")
+        # This high-entropy client key also authenticates the participant's private follow-up screen.
         idem = body.get("idempotencyKey")
         if not isinstance(idem, str) or not 16 <= len(idem) <= 128:
             raise ApiError(422, "INVALID_IDEMPOTENCY_KEY", "요청을 다시 시도할 수 없습니다. 화면을 새로 열어 주세요")
@@ -665,7 +972,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"passengerId": existing["id"], "displayName": existing["display_name"], "point": _json(existing["point"]), "duplicate": True})
             if row["state"] not in ("COLLECTING", "PLANNED"):
                 raise ApiError(409, "SESSION_CLOSED", "참가 등록이 마감되었습니다")
-            count = db.execute("SELECT COUNT(*) FROM passengers WHERE session_id=?", (session_id,)).fetchone()[0]
+            count = db.execute("SELECT COUNT(*) AS count FROM passengers WHERE session_id=?", (session_id,)).fetchone()["count"]
             if count >= 4:
                 raise ApiError(409, "SESSION_FULL", "동승자는 최대 4명까지 등록할 수 있습니다")
             passenger_id = str(uuid.uuid4())
@@ -685,11 +992,17 @@ class Handler(BaseHTTPRequestHandler):
             basis_version = row["version"]
 
         provider = routing_provider()
-        if provider == "osrm":
+        matrix_points = None
+        traffic_matrix = None
+        if provider in {"osrm", "kakao"}:
             matrix_points = [start, *[person["point"] for person in passengers]]
             if final:
                 matrix_points.append(final)
-            evaluator = matrix_evaluator(matrix_points)
+            if provider == "kakao":
+                evaluator = KakaoMatrixEvaluator(matrix_points)
+                traffic_matrix = evaluator.snapshot()
+            else:
+                evaluator = matrix_evaluator(matrix_points)
         elif provider == "naver":
             evaluator = naver_route_evaluator()
         else:
@@ -704,14 +1017,25 @@ class Handler(BaseHTTPRequestHandler):
             timeout_seconds=120 if provider == "naver" else None,
         )
         chosen = results[0]
-        if provider == "osrm":
+        if provider in {"osrm", "kakao"}:
             by_id = {person["id"]: person for person in passengers}
             route_points = [start, *[by_id[item]["point"] for item in chosen["order"]]]
             if final:
                 route_points.append(final)
-            chosen = {**chosen, **fetch_route(route_points)}
-        note = NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
-        provider_version = NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+            if provider == "kakao":
+                matrix_duration_ms = chosen["durationMs"]
+                matrix_fetched_at = chosen["fetchedAt"]
+                chosen = {
+                    **chosen,
+                    **fetch_kakao_route(route_points),
+                    "optimizationDurationMs": matrix_duration_ms,
+                    "optimizationFetchedAt": matrix_fetched_at,
+                    "trafficMatrix": traffic_matrix,
+                }
+            else:
+                chosen = {**chosen, **fetch_route(route_points)}
+        note = KAKAO_NOTE if provider == "kakao" else NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
+        provider_version = KAKAO_PROVIDER_VERSION if provider == "kakao" else NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
         snapshot = {
             **chosen,
             "evaluatedCount": len(results),
@@ -719,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
             "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "providerVersion": provider_version,
             "note": note,
-            "attribution": NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+            "attribution": KAKAO_ATTRIBUTION if provider == "kakao" else NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
         }
         with _db_connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -752,9 +1076,9 @@ class Handler(BaseHTTPRequestHandler):
             basis_version = row["version"]
 
         provider = routing_provider()
-        estimate = fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
-        note = NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
-        provider_version = NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+        estimate = fetch_kakao_route(points) if provider == "kakao" else fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
+        note = KAKAO_NOTE if provider == "kakao" else NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
+        provider_version = KAKAO_PROVIDER_VERSION if provider == "kakao" else NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
         snapshot = {
             **estimate,
             "order": order,
@@ -763,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
             "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "providerVersion": provider_version,
             "note": note,
-            "attribution": NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+            "attribution": KAKAO_ATTRIBUTION if provider == "kakao" else NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
         }
         with _db_connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -855,7 +1179,9 @@ class Handler(BaseHTTPRequestHandler):
             authority = f"[{host}]" if ":" in host else host
             if port is not None:
                 authority += ":" + str(port)
-            return "http://" + authority
+            forwarded_proto = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+            scheme = forwarded_proto if forwarded_proto in {"http", "https"} else "https" if os.environ.get("VERCEL") == "1" else "http"
+            return scheme + "://" + authority
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.connect(("192.0.2.1", 80))
@@ -893,7 +1219,7 @@ def main() -> None:
     print("MOAGIL 시연 서버가 준비되었습니다.")
     print("차량 화면: http://localhost:" + str(port))
     print("휴대폰은 QR 초대 링크로 인터넷을 통해 접속할 수 있습니다.")
-    print("경로 계산: " + ("네이버 Directions 5 (실시간 교통)" if provider == "naver" else "OSM 실제 도로망 (실시간 교통 없음)" if provider == "osrm" else "모의 직선거리"))
+    print("경로 계산: 카카오내비 실시간 교통 길찾기")
     print("종료: Ctrl+C")
     try:
         server.serve_forever()

@@ -1,6 +1,5 @@
 package kr.moagil.vehicle.navigation
 
-import android.content.Context
 import android.os.SystemClock
 import kr.moagil.vehicle.data.Point
 
@@ -27,5 +26,3 @@ interface VehicleContextPort {
     fun start(onUpdate: (VehicleContext) -> Unit)
     fun close()
 }
-
-fun createVehicleContextPort(context: Context): VehicleContextPort

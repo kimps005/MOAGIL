@@ -1,8 +1,6 @@
 package kr.moagil.vehicle
 
-import android.graphics.Color as AndroidColor
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
@@ -11,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -30,7 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,7 +54,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,31 +63,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.naver.maps.geometry.LatLng
-import com.naver.maps.geometry.LatLngBounds
-import com.naver.maps.map.CameraUpdate
-import com.naver.maps.map.MapView
-import com.naver.maps.map.NaverMap
-import com.naver.maps.map.overlay.Marker
-import com.naver.maps.map.overlay.PolylineOverlay
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -99,27 +78,14 @@ import kr.moagil.vehicle.data.DriverSession
 import kr.moagil.vehicle.data.Passenger
 import kr.moagil.vehicle.data.Point
 import kr.moagil.vehicle.ui.DriverUiState
+import kr.moagil.vehicle.ui.KakaoVehicleMap
 import kr.moagil.vehicle.ui.MoagilViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlin.math.PI
-import kotlin.math.ceil
-import kotlin.math.floor
-import kotlin.math.ln
-import kotlin.math.pow
-import kotlin.math.sin
 
 private val Ink = Color(0xFFF4F5F9)
 private val Panel = Color.White
@@ -247,6 +213,15 @@ private fun QrFirstScreen(state: DriverUiState, model: MoagilViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("MOAGIL", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+            if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                Text(
+                    "Pleos 내비를 기본 화면에 둔 뒤, 동승자 창의 앱 라이브러리에서 모아길을 실행하세요. 자주 쓰면 동승자 GNB 즐겨찾기에 추가할 수 있습니다.",
+                    color = Muted,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.widthIn(max = 680.dp),
+                )
+            }
             if (inviteUrl.isNotBlank()) {
                 val qr = remember(inviteUrl) { renderQr(inviteUrl) }
                 if (qr != null) {
@@ -365,33 +340,60 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
     val session = state.session ?: return
     val credentials = state.credentials
     val terminal = session.state in setOf("COMPLETED", "CANCELLED", "EXPIRED")
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val wide = maxWidth > 900.dp
-        if (wide) {
-            Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                RealRoadMapCard(
-                    session,
-                    state.credentials?.apiBaseUrl ?: state.apiBaseUrl,
-                    state.credentials?.driverToken.orEmpty(),
-                    Modifier.weight(1.5f).fillMaxHeight(),
+    if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+        val contentModifier = modifier.fillMaxSize().padding(14.dp)
+        Box(contentModifier) {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                KakaoVehicleMap(
+                    session = session,
+                    javascriptKey = state.kakaoMapJavascriptKey,
+                    mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
+                    assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                    modifier = Modifier.weight(1.4f).fillMaxHeight(),
                 )
                 if (terminal) {
-                    SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight())
+                    SessionDetailsColumn(
+                        session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(),
+                        onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight(),
+                    )
                 } else {
-                    LiveStopsPanel(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onFinish, Modifier.weight(1f).fillMaxHeight())
-                }
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
-                    RealRoadMapCard(
-                        session,
-                        state.credentials?.apiBaseUrl ?: state.apiBaseUrl,
-                        state.credentials?.driverToken.orEmpty(),
-                        Modifier.fillMaxWidth().height(360.dp),
+                    LiveStopsPanel(
+                        session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(),
+                        onFinish, Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
-                sessionDetailItems(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, terminal)
+            }
+        }
+    } else {
+        BoxWithConstraints(modifier.fillMaxWidth()) {
+            if (maxWidth > 900.dp) {
+                Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    KakaoVehicleMap(
+                        session = session,
+                        javascriptKey = state.kakaoMapJavascriptKey,
+                        mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
+                        assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                        modifier = Modifier.weight(1.5f).fillMaxHeight(),
+                    )
+                    if (terminal) {
+                        SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight())
+                    } else {
+                        LiveStopsPanel(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onFinish, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item {
+                        KakaoVehicleMap(
+                            session = session,
+                            javascriptKey = state.kakaoMapJavascriptKey,
+                            mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
+                            assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                            modifier = Modifier.fillMaxWidth().height(360.dp),
+                        )
+                    }
+                    sessionDetailItems(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, terminal)
+                }
             }
         }
     }
@@ -412,7 +414,7 @@ private fun LiveStopsPanel(
         AlertDialog(
             onDismissRequest = { confirmPleosRoute = false },
             title = { Text("안내 시작") },
-            text = { Text("첫 목적지를 Pleos 내비에 보냅니다.") },
+            text = { Text("최적 순서대로 다음 구간을 Pleos 내비에 보냅니다. 동승자 창의 앱 라이브러리에서 모아길을 열면 기본 내비와 함께 사용할 수 있습니다.") },
             confirmButton = { TextButton(onClick = { confirmPleosRoute = false; model.startRoute() }) { Text("시작") } },
             dismissButton = { TextButton(onClick = { confirmPleosRoute = false }) { Text("취소") } },
         )
@@ -433,7 +435,7 @@ private fun LiveStopsPanel(
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("${session.passengers.size}/4", color = Color(0xFF535E78), fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = .2.sp)
+                    Text("${session.passengers.size}/4", color = Color(0xFF535E78), fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = .2.sp)
                 }
                 Badge(
                     label = when {
@@ -454,9 +456,9 @@ private fun LiveStopsPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("${minutes}분", color = Color(0xFF36457F), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("${minutes}분", color = Color(0xFF36457F), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Box(Modifier.size(4.dp).background(Color(0xFF8995D7), CircleShape))
-                    Text(kilometers, color = Color(0xFF616B85), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(kilometers, color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
@@ -464,20 +466,14 @@ private fun LiveStopsPanel(
                 Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                itemsIndexed(orderedPeople, key = { _, person -> person.id }) { index, passenger ->
+                items(orderedPeople, key = { it.id }) { passenger ->
                     val friendIndex = registrationIndex[passenger.id] ?: 0
-                    val canReorder = state.canOperate && !state.busy && session.state == "PLANNED"
                     FriendStopRow(
                         passenger = passenger,
                         friendLabel = friendLabel(friendIndex),
                         priority = session.priorityPassengerId == passenger.id,
-                        canPin = state.canOperate && !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
-                        canMoveUp = canReorder && index > 0 && (session.priorityPassengerId == null || index > 1),
-                        canMoveDown = canReorder && index < orderedPeople.lastIndex && passenger.id != session.priorityPassengerId,
-                        showReorder = session.state == "PLANNED",
+                        canPin = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
                         onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
-                        onMoveUp = { model.movePassenger(passenger.id, -1) },
-                        onMoveDown = { model.movePassenger(passenger.id, 1) },
                     )
                 }
                 if (session.state == "ACTIVE") {
@@ -517,12 +513,7 @@ private fun FriendStopRow(
     friendLabel: String,
     priority: Boolean,
     canPin: Boolean,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    showReorder: Boolean,
     onPin: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth()
@@ -534,42 +525,20 @@ private fun FriendStopRow(
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         val emoji = passengerEmoji(passenger.displayName)
-        Box(Modifier.size(44.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
-            Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 23.sp else 18.sp)
+        Box(Modifier.size(48.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
+            Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 25.sp else 20.sp)
         }
         Column(Modifier.weight(1f)) {
-            Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(passenger.point.label, color = Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (showReorder) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(
-                    onClick = onMoveUp,
-                    enabled = canMoveUp,
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(if (canMoveUp) Color.White else Color.Transparent)
-                        .border(1.dp, if (canMoveUp) Border else Color.Transparent, CircleShape)
-                        .semantics { contentDescription = "위로 이동" },
-                ) {
-                    Text("↑", color = if (canMoveUp) Mint else Muted.copy(alpha = .55f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-                IconButton(
-                    onClick = onMoveDown,
-                    enabled = canMoveDown,
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(if (canMoveDown) Color.White else Color.Transparent)
-                        .border(1.dp, if (canMoveDown) Border else Color.Transparent, CircleShape)
-                        .semantics { contentDescription = "아래로 이동" },
-                ) {
-                    Text("↓", color = if (canMoveDown) Mint else Muted.copy(alpha = .55f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+            Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passenger.point.label, color = Muted, fontSize = 16.sp, lineHeight = 21.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         IconButton(
             onClick = onPin,
             enabled = canPin,
-            modifier = Modifier.size(40.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(13.dp))
+            modifier = Modifier.size(48.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(15.dp))
                 .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
         ) {
-            Text("📌", fontSize = 17.sp)
+            Text("📌", fontSize = 22.sp)
         }
     }
 }
@@ -599,7 +568,13 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
 
 private fun friendLabel(index: Int): String = "친구 ${(index.coerceIn(0, 25) + 'A'.code).toChar()}"
 
-private val passengerAvatarEmojis = setOf("🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐")
+private val passengerAvatarEmojis = setOf(
+    "🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐",
+    "🚎", "🚐", "🚓", "🚑", "🚒", "🚚", "🚛", "🛵", "🏍️", "✈️",
+    "🐻", "🐨", "🐯", "🦁", "🐸", "🐵", "🐧", "🦉", "🦄", "🐝", "🦋", "🐢",
+    "🐬", "🐳", "🦈", "🐙", "🦖", "🐘", "🌈", "☀️", "🌹", "🌻", "🍀", "🍁",
+    "🍎", "🍉", "🍓", "🍕", "🧋", "⚽",
+)
 
 private fun passengerEmoji(displayName: String): String? = passengerAvatarEmojis.firstOrNull { displayName.startsWith("$it ") }
 
@@ -634,6 +609,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sessionDetailItems(
     terminal: Boolean,
 ) {
     item { InviteCard(session, joinBaseUrl, inviteToken) }
+    if (BuildConfig.PLEOS_NATIVE_NAVIGATION) item { PleosSplitScreenHint() }
     item { PassengerCard(session, state, model, onDelete, Modifier.fillMaxWidth()) }
     if (session.route != null && session.state in setOf("PLANNED", "ACTIVE")) {
         item { OrderCard(session, state, model) }
@@ -663,6 +639,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.sessionDetailItems(
 }
 
 @Composable
+private fun PleosSplitScreenHint() {
+    Card(colors = CardDefaults.cardColors(containerColor = AccentSoft), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Pleos 화면 배치", color = Color(0xFF36457F), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(
+                "기본 내비를 유지하려면 동승자 창의 앱 라이브러리에서 모아길을 여세요. 앱 아이콘은 동승자 GNB 즐겨찾기에 등록할 수 있습니다.",
+                color = Color(0xFF535E78),
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RouteCalculationCard(state: DriverUiState, model: MoagilViewModel) {
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -671,364 +662,6 @@ private fun RouteCalculationCard(state: DriverUiState, model: MoagilViewModel) {
             if (!state.autoPlanning) OutlinedButton(onClick = model::recalculate) { Text("다시 계산") }
         }
     }
-}
-
-@Composable
-private fun RealRoadMapCard(session: DriverSession, apiBaseUrl: String, driverToken: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier,
-        colors = CardDefaults.cardColors(containerColor = Panel),
-        shape = RoundedCornerShape(22.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) {
-                OsmStreetMapView(session, apiBaseUrl, driverToken, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)))
-            } else {
-                NaverRoadMapView(session, Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(16.dp)))
-            }
-            Text(
-                if (BuildConfig.NAVER_MAP_CLIENT_ID.isBlank()) "© OpenStreetMap" else "© Naver Maps",
-                color = Muted,
-                fontSize = 10.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NaverRoadMapView(session: DriverSession, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var mapView by remember { mutableStateOf<MapView?>(null) }
-    var naverMap by remember { mutableStateOf<NaverMap?>(null) }
-    val markers = remember { mutableStateListOf<Marker>() }
-    var routeLine by remember { mutableStateOf<PolylineOverlay?>(null) }
-
-    AndroidView(
-        factory = { viewContext ->
-            MapView(viewContext).also { view ->
-                mapView = view
-                view.onCreate(null)
-                view.getMapAsync { map -> naverMap = map }
-            }
-        },
-        modifier = modifier,
-    )
-
-    DisposableEffect(lifecycleOwner, mapView) {
-        val view = mapView
-        var destroyed = false
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> view?.onStart()
-                Lifecycle.Event.ON_RESUME -> view?.onResume()
-                Lifecycle.Event.ON_PAUSE -> view?.onPause()
-                Lifecycle.Event.ON_STOP -> view?.onStop()
-                Lifecycle.Event.ON_DESTROY -> if (!destroyed) { view?.onDestroy(); destroyed = true }
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            if (!destroyed) {
-                view?.onPause()
-                view?.onStop()
-                view?.onDestroy()
-            }
-        }
-    }
-
-    LaunchedEffect(naverMap, session.sessionId, session.version) {
-        val map = naverMap ?: return@LaunchedEffect
-        markers.forEach { it.map = null }
-        markers.clear()
-        routeLine?.map = null
-        routeLine = null
-
-        val bounds = LatLngBounds.Builder()
-        val boundPoints = mutableListOf<LatLng>()
-        fun addMarker(point: Point, caption: String, color: Int) {
-            val position = LatLng(point.lat, point.lon)
-            markers += Marker().apply {
-                this.position = position
-                captionText = caption
-                iconTintColor = color
-                this.map = map
-            }
-            boundPoints += position
-        }
-
-        addMarker(session.startPoint, "출발", AndroidColor.rgb(82, 91, 116))
-        session.passengers.forEachIndexed { index, passenger ->
-            val color = if (session.priorityPassengerId == passenger.id) AndroidColor.rgb(239, 151, 75) else AndroidColor.rgb(101, 121, 238)
-            addMarker(passenger.point, passengerEmoji(passenger.displayName) ?: friendLabel(index).takeLast(1), color)
-        }
-        session.finalPoint?.let { addMarker(it, "도착", AndroidColor.rgb(82, 91, 116)) }
-
-        val geometry = session.route?.geometry.orEmpty()
-        if (geometry.size > 1) {
-            val coordinates = geometry.map { LatLng(it.lat, it.lon) }
-            routeLine = PolylineOverlay().apply {
-                coords = coordinates
-                color = AndroidColor.rgb(101, 121, 238)
-                width = 12
-                this.map = map
-            }
-            boundPoints += coordinates
-        }
-        boundPoints.forEach(bounds::include)
-        if (boundPoints.size > 1) {
-            map.moveCamera(CameraUpdate.fitBounds(bounds.build(), 48))
-        } else {
-            map.moveCamera(CameraUpdate.scrollTo(LatLng(session.startPoint.lat, session.startPoint.lon)))
-        }
-    }
-}
-
-@Composable
-private fun OsmStreetMapView(session: DriverSession, apiBaseUrl: String, driverToken: String, modifier: Modifier = Modifier) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val markers = remember(session.sessionId, session.version) {
-        buildList {
-            add(MapMarker(session.startPoint, "S", isStart = true))
-            session.passengers.forEachIndexed { index, passenger ->
-                val emoji = passengerEmoji(passenger.displayName)
-                add(MapMarker(passenger.point, emoji ?: friendLabel(index).takeLast(1), isPriority = session.priorityPassengerId == passenger.id, isEmoji = emoji != null))
-            }
-            session.finalPoint?.let { add(MapMarker(it, "F", isFinal = true)) }
-        }
-    }
-    val routePoints = remember(session.sessionId, session.version) { session.route?.geometry.orEmpty() }
-    val allPoints = remember(markers, routePoints) { markers.map(MapMarker::point) + routePoints }
-    var camera by remember(session.sessionId) { mutableStateOf<MapCamera?>(null) }
-    var manuallyMoved by remember(session.sessionId) { mutableStateOf(false) }
-    BoxWithConstraints(modifier.background(Color(0xFFEEF1F8)), contentAlignment = Alignment.Center) {
-        val widthPx = with(density) { maxWidth.roundToPx().coerceAtLeast(1) }
-        val heightPx = with(density) { maxHeight.roundToPx().coerceAtLeast(1) }
-        val fitCamera = remember(allPoints, widthPx, heightPx) {
-            val zoom = fittingZoom(allPoints, widthPx, heightPx)
-            val worldPoints = allPoints.map { worldPoint(it, zoom) }
-            MapCamera(
-                centerX = (worldPoints.minOfOrNull(WorldPoint::x) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::x) ?: 0.0) / 2.0,
-                centerY = (worldPoints.minOfOrNull(WorldPoint::y) ?: 0.0) / 2.0 + (worldPoints.maxOfOrNull(WorldPoint::y) ?: 0.0) / 2.0,
-                zoom = zoom,
-            )
-        }
-        LaunchedEffect(fitCamera) {
-            if (!manuallyMoved) camera = fitCamera
-        }
-        val visibleCamera = camera ?: fitCamera
-        val zoom = visibleCamera.zoom
-        val centerX = visibleCamera.centerX
-        val centerY = visibleCamera.centerY
-        val originX = centerX - widthPx / 2.0
-        val originY = centerY - heightPx / 2.0
-        val latestCamera = androidx.compose.runtime.rememberUpdatedState(visibleCamera)
-        val tileRequests = remember(zoom, widthPx, heightPx, centerX, centerY) {
-            mapTileRequests(zoom, originX, originY, widthPx, heightPx)
-        }
-        val loadedTiles by produceState<List<OsmTile>?>(null, tileRequests, apiBaseUrl, session.sessionId, driverToken) {
-            value = null
-            val firstPass = OsmTileLoader.load(tileRequests, apiBaseUrl, session.sessionId, driverToken)
-            value = firstPass
-            val loadedPositions = firstPass.mapTo(mutableSetOf()) { it.left to it.top }
-            val missingRequests = tileRequests.filter { (it.left to it.top) !in loadedPositions }
-            if (missingRequests.isNotEmpty()) {
-                delay(250)
-                val retriedTiles = OsmTileLoader.load(missingRequests, apiBaseUrl, session.sessionId, driverToken)
-                value = (firstPass + retriedTiles).distinctBy { it.left to it.top }
-            }
-        }
-        Canvas(
-            Modifier.fillMaxSize().pointerInput(session.sessionId, widthPx, heightPx) {
-                var accumulatedZoom = 1f
-                detectTransformGestures { centroid, pan, zoomChange, _ ->
-                    accumulatedZoom *= zoomChange
-                    var zoomSteps = 0
-                    while (accumulatedZoom >= 1.35f && latestCamera.value.zoom + zoomSteps < 18) {
-                        accumulatedZoom /= 1.35f
-                        zoomSteps++
-                    }
-                    while (accumulatedZoom <= 0.74f && latestCamera.value.zoom + zoomSteps > 6) {
-                        accumulatedZoom /= 0.74f
-                        zoomSteps--
-                    }
-                    if (latestCamera.value.zoom + zoomSteps !in 6..18) accumulatedZoom = 1f
-                    if (pan != Offset.Zero || zoomSteps != 0) {
-                        manuallyMoved = true
-                        camera = transformMapCamera(latestCamera.value, pan, zoomSteps, centroid, size.width.toFloat(), size.height.toFloat())
-                    }
-                }
-            },
-        ) {
-            loadedTiles.orEmpty().forEach { tile ->
-                drawImage(tile.image, dstOffset = IntOffset(tile.left, tile.top), dstSize = IntSize(256, 256))
-            }
-            if (routePoints.size > 1) {
-                val route = routePoints.map { worldPoint(it, zoom) }
-                val step = (route.size / 400).coerceAtLeast(1)
-                val simplified = route.filterIndexed { index, _ -> index % step == 0 || index == route.lastIndex }
-                simplified.zipWithNext().forEach { (a, b) ->
-                    drawLine(Mint, Offset((a.x - originX).toFloat(), (a.y - originY).toFloat()), Offset((b.x - originX).toFloat(), (b.y - originY).toFloat()), strokeWidth = 7.dp.toPx())
-                }
-            }
-            markers.forEach { marker ->
-                val point = worldPoint(marker.point, zoom)
-                val center = Offset((point.x - originX).toFloat(), (point.y - originY).toFloat())
-                val fill = when {
-                    marker.isStart || marker.isFinal -> Color(0xFF525B74)
-                    marker.isPriority -> Color(0xFFEF974B)
-                    else -> Mint
-                }
-                val radius = when {
-                    marker.isStart || marker.isFinal -> 12.dp.toPx()
-                    marker.isEmoji -> 16.dp.toPx()
-                    else -> 11.dp.toPx()
-                }
-                drawCircle(fill, radius = radius, center = center)
-                drawCircle(Color.White, radius = radius, center = center, style = Stroke(width = 2.dp.toPx()))
-                drawContext.canvas.nativeCanvas.drawText(
-                    marker.label,
-                    center.x,
-                    center.y + 4.dp.toPx(),
-                    android.graphics.Paint().apply {
-                        color = AndroidColor.WHITE
-                    textSize = if (marker.isEmoji) 17.sp.toPx() else 10.sp.toPx()
-                        textAlign = android.graphics.Paint.Align.CENTER
-                        typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-                        isAntiAlias = true
-                    },
-                )
-            }
-        }
-        when {
-            loadedTiles == null -> CircularProgressIndicator(color = Mint)
-        }
-        Surface(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-            color = Color.White.copy(alpha = .94f),
-            shape = RoundedCornerShape(12.dp),
-            shadowElevation = 4.dp,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                IconButton(
-                    onClick = {
-                        manuallyMoved = true
-                        camera = transformMapCamera(visibleCamera, Offset.Zero, 1, Offset(widthPx / 2f, heightPx / 2f), widthPx.toFloat(), heightPx.toFloat())
-                    },
-                    modifier = Modifier.size(40.dp),
-                ) { Text("+", fontSize = 21.sp, fontWeight = FontWeight.Bold) }
-                Divider(Modifier.width(24.dp))
-                IconButton(
-                    onClick = {
-                        manuallyMoved = true
-                        camera = transformMapCamera(visibleCamera, Offset.Zero, -1, Offset(widthPx / 2f, heightPx / 2f), widthPx.toFloat(), heightPx.toFloat())
-                    },
-                    modifier = Modifier.size(40.dp),
-                ) { Text("−", fontSize = 21.sp, fontWeight = FontWeight.Bold) }
-            }
-        }
-    }
-}
-
-private data class MapMarker(
-    val point: Point,
-    val label: String,
-    val isStart: Boolean = false,
-    val isPriority: Boolean = false,
-    val isFinal: Boolean = false,
-    val isEmoji: Boolean = false,
-)
-private data class WorldPoint(val x: Double, val y: Double)
-private data class MapCamera(val centerX: Double, val centerY: Double, val zoom: Int)
-private data class TileRequest(val zoom: Int, val x: Int, val y: Int, val left: Int, val top: Int)
-private data class OsmTile(val left: Int, val top: Int, val image: androidx.compose.ui.graphics.ImageBitmap)
-
-private fun transformMapCamera(
-    camera: MapCamera,
-    pan: Offset,
-    zoomSteps: Int,
-    focalPoint: Offset,
-    width: Float,
-    height: Float,
-): MapCamera {
-    val pannedX = camera.centerX - pan.x
-    val pannedY = camera.centerY - pan.y
-    val zoom = (camera.zoom + zoomSteps).coerceIn(6, 18)
-    val scale = 2.0.pow((zoom - camera.zoom).toDouble())
-    val focalX = focalPoint.x - width / 2.0
-    val focalY = focalPoint.y - height / 2.0
-    return MapCamera(
-        centerX = (pannedX + focalX) * scale - focalX,
-        centerY = (pannedY + focalY) * scale - focalY,
-        zoom = zoom,
-    )
-}
-
-private fun worldPoint(point: Point, zoom: Int): WorldPoint {
-    val scale = 256.0 * (1 shl zoom)
-    val latitude = point.lat.coerceIn(-85.0511, 85.0511) * PI / 180.0
-    val x = (point.lon + 180.0) / 360.0 * scale
-    val y = (0.5 - ln((1.0 + sin(latitude)) / (1.0 - sin(latitude))) / (4.0 * PI)) * scale
-    return WorldPoint(x, y)
-}
-
-private fun fittingZoom(points: List<Point>, width: Int, height: Int): Int {
-    if (points.size < 2) return 12
-    for (zoom in 16 downTo 6) {
-        val projected = points.map { worldPoint(it, zoom) }
-        val spanX = (projected.maxOf(WorldPoint::x) - projected.minOf(WorldPoint::x)) * .5
-        val spanY = (projected.maxOf(WorldPoint::y) - projected.minOf(WorldPoint::y)) * .5
-        if (spanX <= width * .38 && spanY <= height * .38) return zoom
-    }
-    return 6
-}
-
-private fun mapTileRequests(zoom: Int, originX: Double, originY: Double, width: Int, height: Int): List<TileRequest> {
-    val tileCount = 1 shl zoom
-    val firstX = floor(originX / 256.0).toInt()
-    val firstY = floor(originY / 256.0).toInt()
-    val lastX = floor((originX + width) / 256.0).toInt()
-    val lastY = floor((originY + height) / 256.0).toInt()
-    return buildList {
-        for (tileY in firstY..lastY) {
-            if (tileY !in 0 until tileCount) continue
-            for (tileX in firstX..lastX) {
-                val wrappedX = ((tileX % tileCount) + tileCount) % tileCount
-                add(TileRequest(zoom, wrappedX, tileY, (tileX * 256 - originX).toInt(), (tileY * 256 - originY).toInt()))
-            }
-        }
-    }
-}
-
-private object OsmTileLoader {
-    private val client = OkHttpClient.Builder().connectTimeout(6, TimeUnit.SECONDS).readTimeout(6, TimeUnit.SECONDS).build()
-    private val cache = ConcurrentHashMap<String, androidx.compose.ui.graphics.ImageBitmap>()
-
-    suspend fun load(requests: List<TileRequest>, apiBaseUrl: String, sessionId: String, driverToken: String): List<OsmTile> = coroutineScope {
-        requests.chunked(4).flatMap { batch ->
-            batch.map { request -> async(Dispatchers.IO) { loadOne(request, apiBaseUrl, sessionId, driverToken) } }.awaitAll().filterNotNull()
-        }
-    }
-
-    private fun loadOne(request: TileRequest, apiBaseUrl: String, sessionId: String, driverToken: String): OsmTile? = runCatching {
-        val key = "${request.zoom}/${request.x}/${request.y}"
-        val image = cache[key] ?: run {
-            val httpRequest = Request.Builder()
-                .url("${apiBaseUrl.trimEnd('/')}/api/sessions/$sessionId/map-tiles/${request.zoom}/${request.x}/${request.y}.png")
-                .header("Authorization", "Bearer $driverToken")
-                .build()
-            client.newCall(httpRequest).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val bytes = response.body?.bytes() ?: return null
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-                bitmap.asImageBitmap().also { cache[key] = it }
-            }
-        }
-        OsmTile(request.left, request.top, image)
-    }.getOrNull()
 }
 
 @Composable
@@ -1182,7 +815,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
         AlertDialog(
             onDismissRequest = { confirmPleosRoute = false },
             title = { Text("Pleos 내비 목적지를 변경할까요?") },
-            text = { Text("최적화된 첫 하차 지점을 차량 내비에 전송합니다. 이미 안내 중인 경로가 있다면 바뀔 수 있습니다. 다음 목적지는 하차 완료를 누를 때마다 전송됩니다.") },
+            text = { Text("최적화된 순서대로 다음 구간을 Pleos 내비에 전송합니다. 모아길은 경유지 FIRST·SECOND와 목적지로 다음 최대 3곳을 요청하고, 해당 구간을 마친 뒤 이어지는 구간을 보냅니다. 하차 확인은 모아길에서 계속 진행합니다. 현재 내비 경로는 바뀔 수 있습니다.") },
             confirmButton = { TextButton(onClick = { confirmPleosRoute = false; model.startRoute() }) { Text("Pleos 내비로 전송") } },
             dismissButton = { TextButton(onClick = { confirmPleosRoute = false }) { Text("취소") } },
         )
@@ -1270,10 +903,10 @@ private fun SectionTitle(title: String, subtitle: String) {
 
 @Composable
 private fun Badge(label: String, color: Color) {
-    Row(Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(40.dp)).padding(horizontal = 11.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(7.dp).background(color, CircleShape))
-        Spacer(Modifier.width(7.dp))
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    Row(Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(40.dp)).padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).background(color, CircleShape))
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const baseUrl = 'http://127.0.0.1:8080';
 const planCalls = [];
 let session = null;
+let registeredPassenger = null;
 
 function snapshot() {
   return JSON.parse(JSON.stringify(session));
@@ -24,12 +25,13 @@ async function main() {
     if (url.origin !== baseUrl) return route.fulfill({ status: 204, body: '' });
 
     if (url.pathname === '/' || url.pathname.startsWith('/join/')) {
-      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'><link rel='stylesheet' href='/theme.css'></head><body><div id='app'></div><script>window.MOAGILMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
+      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'><link rel='stylesheet' href='/theme.css'></head><body><div id='app'></div><script src='/utils.js'></script><script>window.kakao={maps:{Map:function(){}}};window.MOAGILKakaoMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{element.dataset.mapProvider='kakao';window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
     }
     if (url.pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/styles.css'), 'utf8') });
     if (url.pathname === '/theme.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/theme.css'), 'utf8') });
+    if (url.pathname === '/utils.js') return route.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(path.join(root, 'web/utils.js'), 'utf8') });
     if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(path.join(root, 'web/app.js'), 'utf8') });
-    if (url.pathname === '/api/config') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mapProvider: 'osm', routingProvider: 'mock' }) });
+    if (url.pathname === '/api/config') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mapProvider: 'kakao', routingProvider: 'kakao', kakaoMapJavascriptKey: 'test-kakao-key' }) });
 
     if (url.pathname === '/api/sessions/test-session/join-info' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
@@ -54,7 +56,15 @@ async function main() {
       assert.equal(body.point.lat, 37.345);
       assert.equal(body.point.lon, 126.739);
       assert.equal(body.point.label, '지도에서 선택한 위치');
-      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
+      registeredPassenger = { id: 'test-passenger', displayName: body.displayName, point: body.point };
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ passengerId: registeredPassenger.id, displayName: registeredPassenger.displayName, point: registeredPassenger.point }) });
+    }
+
+    if (url.pathname === '/api/sessions/test-session/passengers/test-passenger/progress' && route.request().method() === 'GET') {
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        version: session.version, status: 'COLLECTING', sessionState: 'COLLECTING', canEdit: true,
+        stopNumber: null, totalStops: 0, passenger: registeredPassenger,
+      }) });
     }
 
     if (url.pathname === '/api/sessions' && route.request().method() === 'POST') {
@@ -127,7 +137,7 @@ async function main() {
     await page.locator('#pin-map').waitFor();
     assert.match(await page.locator('.passenger-heading h1').innerText(), /목적지 입력/);
     assert.equal(await page.locator('#display-name').getAttribute('placeholder'), '이름이나 별명을 입력하세요.');
-    assert.equal(await page.locator('.emoji-option').count(), 12);
+    assert.equal(await page.locator('.emoji-option').count(), await page.evaluate(() => window.MOAGILUtils.avatarEmojis.length));
     await page.locator('[data-emoji="🐱"]').click();
     assert.equal(await page.locator('[data-emoji="🐱"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.phone-submit').isVisible(), true);
@@ -146,8 +156,8 @@ async function main() {
     if (process.env.MOAGIL_UI_SCREENSHOT) await page.screenshot({ path: process.env.MOAGIL_UI_SCREENSHOT, fullPage: true });
     await page.locator('#display-name').fill('수연');
     await page.locator('.phone-submit').click();
-    await page.locator('.passenger-result').waitFor();
-    assert.match(await page.locator('.passenger-result').innerText(), /🐱 수연/);
+    await page.locator('.passenger-progress-card').waitFor();
+    assert.match(await page.locator('.passenger-progress-identity strong').innerText(), /🐱 수연/);
     console.log('UI PASS: QR 참가 화면 간소화, 장소 검색 핀 이동, 목적지 등록 완료');
   } finally {
     await browser.close();

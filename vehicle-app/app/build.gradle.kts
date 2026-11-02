@@ -1,16 +1,23 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
 
-val localProperties = Properties().apply {
-    val propertiesFile = rootProject.file("local.properties")
-    if (propertiesFile.isFile) propertiesFile.inputStream().use { this.load(it) }
+val kakaoMapJavascriptKey = System.getenv("MOAGIL_KAKAO_JAVASCRIPT_KEY").orEmpty().trim().ifBlank {
+    rootProject.file("../.env").takeIf { it.isFile }?.useLines { lines ->
+        lines.map(String::trim)
+            .firstOrNull { it.startsWith("MOAGIL_KAKAO_JAVASCRIPT_KEY=") }
+            ?.substringAfter('=')
+            ?.trim()
+            ?.removeSurrounding("\"")
+            ?.removeSurrounding("'")
+    }.orEmpty()
 }
-val naverMapClientId = localProperties.getProperty("naver.map.clientId", "").trim()
-val escapedNaverMapClientId = naverMapClientId.replace("\\", "\\\\").replace("\"", "\\\"")
+val escapedKakaoMapJavascriptKey = kakaoMapJavascriptKey
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\r", "")
+    .replace("\n", "\\n")
 
 android {
     namespace = "kr.moagil.vehicle"
@@ -23,8 +30,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        manifestPlaceholders["naverMapClientId"] = naverMapClientId
-        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$escapedNaverMapClientId\"")
+        buildConfigField("String", "KAKAO_MAP_JAVASCRIPT_KEY", "\"$escapedKakaoMapJavascriptKey\"")
     }
 
     splits {
@@ -84,7 +90,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
-    implementation("com.naver.maps:map-sdk:3.24.0")
     add("pleosImplementation", "ai.pleos.playground:NaviHelper:3.0.5")
     add("pleosImplementation", "ai.pleos.playground:FusedLocation:1.1.3")
     val androidCarApi = android.sdkDirectory.resolve("platforms/android-34/optional/android.car.jar")

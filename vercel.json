@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "web",
+  "rewrites": [
+    { "source": "/api", "destination": "/api/index?__moagil_path=/api" },
+    { "source": "/api/:path*", "destination": "/api/index?__moagil_path=/api/:path*" },
+    { "source": "/join", "destination": "/index.html" },
+    { "source": "/join/:path*", "destination": "/index.html" }
+  ]
+}

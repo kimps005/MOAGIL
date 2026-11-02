@@ -24,6 +24,9 @@ class MoagilApi(private val baseUrl: String) {
         runCatching { request("GET", "/api/health", null, null); true }.getOrDefault(false)
     }
 
+    suspend fun kakaoMapJavascriptKey(): String =
+        request("GET", "/api/config", null, null).optString("kakaoMapJavascriptKey")
+
     suspend fun createSession(demo: Boolean): Pair<DriverCredentials, DriverSession?> {
         val path = if (demo) "/api/sessions/demo" else "/api/sessions"
         val result = request("POST", path, JSONObject(), null)
