@@ -3,7 +3,7 @@
   "outputDirectory": "web",
   "functions": {
     "api/**/*.py": {
-      "excludeFiles": "{apk/**,backend/data/**,backend/tests/**,demo/**,docs/**,vehicle-app/**,web/**,**/__pycache__/**,**/*.pyc}"
+      "excludeFiles": "{apk/**,backend/data/**,backend/tests/**,demo/**,docs/**,vehicle-app/**,**/__pycache__/**,**/*.pyc}"
     }
   },
   "rewrites": [

@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_DIR))
+sys.path.insert(0, str(PROJECT_DIR / "backend"))
 
 import server
 from server import ApiError, Handler
@@ -63,16 +65,19 @@ class ServerGuardTests(unittest.TestCase):
         self.assertEqual("kakao", payload["mapProvider"])
 
     def test_homepage_is_served_when_database_is_unavailable(self):
+        served_paths = []
+
         class StaticResponseHandler(Handler):
             def _path(self):
                 return "/"
 
             def _serve_static(self, path):
-                return path
+                served_paths.append(path)
 
         handler = object.__new__(StaticResponseHandler)
         with patch("server._ensure_db_ready", side_effect=AssertionError("homepage must not initialize the database")):
-            self.assertEqual("/", handler.do_GET())
+            handler.do_GET()
+        self.assertEqual(["/"], served_paths)
 
     def test_vercel_rewritten_homepage_restores_root_path(self):
         handler = object.__new__(VercelHandler)
