@@ -13,6 +13,7 @@ import secrets
 import socket
 import sqlite3
 import threading
+import traceback
 import time
 import uuid
 from collections import OrderedDict, deque
@@ -902,6 +903,10 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             logging.exception("Unhandled POST request failure")
             diagnostic = {"type": type(error).__name__}
+            frames = traceback.extract_tb(error.__traceback__)
+            if frames:
+                diagnostic["location"] = frames[-1].name
+                diagnostic["line"] = frames[-1].lineno
             sqlstate = getattr(error, "sqlstate", None)
             if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate):
                 diagnostic["sqlstate"] = sqlstate
