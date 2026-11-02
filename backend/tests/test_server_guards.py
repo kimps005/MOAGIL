@@ -1,5 +1,6 @@
 import os
 import sys
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -79,6 +80,44 @@ class ServerGuardTests(unittest.TestCase):
             handler.do_GET()
         self.assertEqual(["/"], served_paths)
 
+    def test_landing_and_application_routes_serve_the_expected_static_pages(self):
+        with tempfile.TemporaryDirectory(dir=PROJECT_DIR) as temporary:
+            root = Path(temporary)
+            (root / "landing.html").write_text("landing", encoding="utf-8")
+            (root / "index.html").write_text("application", encoding="utf-8")
+
+            class StaticCapture(Handler):
+                def __init__(self):
+                    self.response_status = None
+                    self.response_headers = {}
+                    self.wfile = io.BytesIO()
+
+                def send_response(self, status):
+                    self.response_status = status
+
+                def _headers(self, *_args, **_kwargs):
+                    pass
+
+                def send_header(self, name, value):
+                    self.response_headers[name] = value
+
+                def end_headers(self):
+                    pass
+
+            with patch.object(server, "WEB_ROOT", root):
+                for path, expected in (
+                    ("/", "landing"),
+                    ("/app", "application"),
+                    ("/app/session", "application"),
+                    ("/join", "application"),
+                    ("/join/session", "application"),
+                ):
+                    with self.subTest(path=path):
+                        handler = StaticCapture()
+                        handler._serve_static(path)
+                        self.assertEqual(200, handler.response_status)
+                        self.assertEqual(expected, handler.wfile.getvalue().decode("utf-8"))
+
     def test_health_identifies_missing_hosted_database_configuration(self):
         class HealthResponseHandler(Handler):
             def _path(self):
@@ -141,6 +180,11 @@ class ServerGuardTests(unittest.TestCase):
             with self.subTest(configured=configured), patch.dict(os.environ, {"MOAGIL_ROUTING_PROVIDER": configured}):
                 self.assertEqual("kakao", server.routing_provider())
 
+    def test_mobile_join_host_accepts_a_configured_lan_or_domain_address(self):
+        for base in ("http://192.168.0.10:8080", "https://moagil.example/"):
+            with self.subTest(base=base), patch.dict(os.environ, {"MOAGIL_PUBLIC_BASE_URL": base}):
+                self.assertEqual(base.rstrip("/"), self.handler()._join_base())
+
     def test_vercel_qr_host_uses_stable_production_domain(self):
         with patch.dict(os.environ, {
             "VERCEL": "1",
@@ -148,11 +192,6 @@ class ServerGuardTests(unittest.TestCase):
             "VERCEL_PROJECT_PRODUCTION_URL": "moagil-eta.vercel.app",
         }), patch("server.socket.socket", side_effect=AssertionError("Vercel must not detect a LAN address")):
             self.assertEqual("https://moagil-eta.vercel.app", self.handler()._join_base())
-
-    def test_mobile_join_host_accepts_a_configured_lan_or_domain_address(self):
-        for base in ("http://192.168.0.10:8080", "https://moagil.example/"):
-            with self.subTest(base=base), patch.dict(os.environ, {"MOAGIL_PUBLIC_BASE_URL": base}):
-                self.assertEqual(base.rstrip("/"), self.handler()._join_base())
 
     def test_mobile_join_host_rejects_non_routable_and_malformed_addresses(self):
         for base in (

@@ -1,6 +1,7 @@
 package kr.moagil.vehicle.ui
 
 import android.app.Application
+import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,7 +29,7 @@ import kr.moagil.vehicle.navigation.NavigationResult
 import kr.moagil.vehicle.BuildConfig
 
 data class DriverUiState(
-    val apiBaseUrl: String = "http://10.0.2.2:8080",
+    val apiBaseUrl: String = PRODUCTION_SERVICE_URL,
     val kakaoMapJavascriptKey: String = "",
     val credentials: DriverCredentials? = null,
     val session: DriverSession? = null,
@@ -50,6 +51,17 @@ data class DriverUiState(
     val notice: String? = null,
     val cancelConfirmation: Boolean = false,
 )
+
+private const val PRODUCTION_SERVICE_URL = "https://moagil-eta.vercel.app"
+
+private fun isLocalServiceUrl(value: String): Boolean {
+    val host = Uri.parse(value.trim()).host?.lowercase() ?: return true
+    if (host == "localhost" || host.endsWith(".localhost") || host == "10.0.2.2") return true
+    val octets = host.split('.').mapNotNull { it.toIntOrNull() }
+    if (octets.size != 4 || octets.any { it !in 0..255 }) return false
+    val (first, second) = octets
+    return first == 10 || first == 127 || (first == 172 && second in 16..31) || (first == 192 && second == 168)
+}
 
 class MoagilViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = DriverVault(application)
@@ -78,7 +90,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         }
         viewModelScope.launch {
             val previousCredentials = vault.restore()
-            if (previousCredentials != null) {
+            if (previousCredentials != null && !isLocalServiceUrl(previousCredentials.apiBaseUrl)) {
                 _state.value = _state.value.copy(apiBaseUrl = previousCredentials.apiBaseUrl)
             }
             createSession(false, previousCredentials)

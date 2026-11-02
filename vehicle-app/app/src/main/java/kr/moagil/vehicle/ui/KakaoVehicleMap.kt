@@ -76,7 +76,12 @@ fun KakaoVehicleMap(
                             val cause = error.description?.toString()?.takeIf { it.isNotBlank() }
                                 ?: "원인 정보 없음"
                             val diagnostic = "$host$path · 페이지 ${origin ?: "origin 없음"} · ${error.errorCode}: $cause"
-                            val message = when (error.errorCode) {
+                            val message = if (
+                                cause.contains("ERR_BLOCKED_BY_ORB", ignoreCase = true) &&
+                                host.equals("dapi.kakao.com", ignoreCase = true)
+                            ) {
+                                "카카오가 현재 페이지 주소를 허용하지 않아 지도를 차단했어요. Kakao Developers의 JavaScript SDK 도메인에 ${origin ?: "앱의 고정 주소"}를 등록해 주세요. ($diagnostic)"
+                            } else when (error.errorCode) {
                                 WebViewClient.ERROR_HOST_LOOKUP -> "카카오 지도 서버 주소를 찾지 못했어요 ($diagnostic). 인터넷 또는 DNS 연결을 확인해 주세요."
                                 WebViewClient.ERROR_CONNECT -> "카카오 지도 서버에 연결하지 못했어요 ($diagnostic). 인터넷 연결을 확인해 주세요."
                                 else -> "카카오 지도 서버 요청이 실패했어요 ($diagnostic). 네트워크와 JavaScript 키 설정을 확인해 주세요."

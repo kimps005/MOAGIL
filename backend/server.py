@@ -1244,7 +1244,9 @@ class Handler(BaseHTTPRequestHandler):
         return "http://" + address + ":" + str(port)
 
     def _serve_static(self, path: str):
-        if path == "/" or path.startswith("/join/"):
+        if path == "/":
+            target = WEB_ROOT / "landing.html"
+        elif path in ("/app", "/join") or path.startswith(("/app/", "/join/")):
             target = WEB_ROOT / "index.html"
         else:
             target = (WEB_ROOT / path.lstrip("/")).resolve()
@@ -1267,7 +1269,8 @@ def main() -> None:
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer((os.environ.get("HOST", "0.0.0.0"), port), Handler)
     print("MOAGIL 시연 서버가 준비되었습니다.")
-    print("차량 화면: http://localhost:" + str(port))
+    print("서비스 소개: http://localhost:" + str(port))
+    print("운전자 화면: http://localhost:" + str(port) + "/app")
     print("휴대폰은 QR 초대 링크로 인터넷을 통해 접속할 수 있습니다.")
     print("경로 계산: 카카오내비 실시간 교통 길찾기")
     print("종료: Ctrl+C")

@@ -19,11 +19,12 @@
 
 Pleos SDK는 공식 Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입니다. `pleosDebug`만 `pleos.car.permission.NAVI_ROUTE_SEARCH` 권한을 요청합니다. 에뮬레이터용 x86_64 APK와 Android 기기용 ARM64 APK는 `app/build/outputs/apk/pleos/debug/`에 생성됩니다. Mock APK는 `app/build/outputs/apk/mock/debug/`에 생성됩니다.
 
-Kakao JavaScript 키의 허용 도메인에 실제 차량 접속 주소를 등록해야 합니다. PC의 LAN 주소로 접속한다면 `http://192.168.x.x:8080`, Android Emulator라면 `http://10.0.2.2:8080`을 포함합니다. 실제 QR 참가 주소도 허용 목록에 추가하세요. 기존 `local.properties`의 `sdk.dir` 줄은 유지하고 이 파일은 Git에 추가하지 않습니다.
+기본 연결 주소는 고정 배포 주소 `https://moagil-eta.vercel.app`입니다. 이 주소를 Kakao Developers의 JavaScript SDK 허용 도메인에 등록하면 에뮬레이터와 차량 앱에서 LAN IP가 바뀌어도 같은 허용 주소를 사용합니다. 이전에 저장한 로컬 서버 주소는 새 세션을 만들 때 배포 주소로 자동 전환됩니다. 로컬 서버를 직접 시험할 때만 앱의 서버 주소 설정에서 `http://10.0.2.2:8080` 또는 기기의 LAN 주소를 사용하고 해당 주소를 Kakao 허용 도메인에 추가하세요. 기존 `local.properties`의 `sdk.dir` 줄은 유지하고 이 파일은 Git에 추가하지 않습니다.
 
 ## 서버 주소
 
-- Android 에뮬레이터: `http://10.0.2.2:8080`
+- Android 에뮬레이터·차량 앱 기본값: `https://moagil-eta.vercel.app`
+- Android 에뮬레이터에서 PC 로컬 서버를 직접 시험할 때: `http://10.0.2.2:8080`
 - 스마트폰/차량 기기: PC LAN 주소 또는 외부에서 접속할 수 있는 HTTPS 도메인/터널
 - QR 공개 주소가 API 주소와 다르면 서버 환경 변수 `MOAGIL_PUBLIC_BASE_URL`을 설정합니다.
 

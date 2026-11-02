@@ -6,6 +6,7 @@ const { chromium } = require(process.env.MOAGIL_PLAYWRIGHT_MODULE || 'playwright
 const root = path.resolve(__dirname, '..');
 const baseUrl = 'http://127.0.0.1:8080';
 const planCalls = [];
+const kakaoSdkAutoloadValues = [];
 let session = null;
 let registeredPassenger = null;
 
@@ -20,12 +21,17 @@ function factorial(value) {
 async function main() {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
   const page = await browser.newPage();
+  page.on('request', request => {
+    if (request.url().includes('dapi.kakao.com/v2/maps/sdk.js')) {
+      kakaoSdkAutoloadValues.push(new URL(request.url()).searchParams.get('autoload'));
+    }
+  });
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== baseUrl) return route.fulfill({ status: 204, body: '' });
 
-    if (url.pathname === '/' || url.pathname.startsWith('/join/')) {
-      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'><link rel='stylesheet' href='/theme.css'></head><body><div id='app'></div><script src='/utils.js'></script><script>window.kakao={maps:{Map:function(){}}};window.MOAGILKakaoMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{element.dataset.mapProvider='kakao';window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
+    if (url.pathname === '/app' || url.pathname === '/' || url.pathname.startsWith('/join/')) {
+      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>모아길</title><link rel='stylesheet' href='/styles.css'><link rel='stylesheet' href='/theme.css'></head><body><div id='app'></div><script src='/utils.js'></script><script>window.kakao={maps:{load:function(callback){window.__kakaoMapsLoadCalled=true;this.Map=function(){};callback()}}};window.MOAGILKakaoMaps={createDriverMap:()=>({destroy(){}}),createPassengerMap:(element,point,onChange)=>{element.dataset.mapProvider='kakao';window.__moagilPin={lat:point.lat,lon:point.lon};window.__moveMoagilPin=next=>{window.__moagilPin=next;onChange(next)};return {destroy(){},setPoint(next){window.__moagilPin=next}}}}</script><script src='/app.js'></script></body></html>` });
     }
     if (url.pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/styles.css'), 'utf8') });
     if (url.pathname === '/theme.css') return route.fulfill({ contentType: 'text/css', body: fs.readFileSync(path.join(root, 'web/theme.css'), 'utf8') });
@@ -103,7 +109,7 @@ async function main() {
   });
 
   try {
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(baseUrl + '/app', { waitUntil: 'domcontentloaded' });
     await page.locator('#qr-card').waitFor();
     await page.waitForFunction(() => document.querySelector('#invite-qr')?.width > 0);
     assert.match(await page.locator('.qr-intro').innerText(), /QR을 스캔/);
@@ -121,6 +127,9 @@ async function main() {
     session.version += 1;
     await page.locator('.passenger-name').filter({ hasText: '지우' }).waitFor();
     await page.waitForFunction(() => document.querySelector('.route-meta')?.textContent.includes('2가지 순서 비교'));
+    await page.waitForFunction(() => window.__kakaoMapsLoadCalled === true);
+    assert.ok(kakaoSdkAutoloadValues.length >= 1);
+    assert.ok(kakaoSdkAutoloadValues.every(value => value === 'false'), 'Kakao map loader must use autoload=false before calling maps.load().');
 
     assert.deepEqual(planCalls.map(call => call.passengerCount), [1, 2], '각 위치 등록 뒤 자동으로 해당 인원수 경로를 계산해야 합니다.');
     assert.equal(await page.locator('.route-workspace .map-card').count(), 1);

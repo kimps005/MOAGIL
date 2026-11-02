@@ -64,7 +64,7 @@ flowchart LR
 .\Start-MOAGIL.ps1
 ```
 
-차량 화면은 [http://localhost:8080](http://localhost:8080)에서 열립니다. 기본 서버는 참가자의 휴대폰이 같은 네트워크에서 접속할 수 있도록 모든 네트워크 인터페이스에서 대기합니다.
+서비스 소개 페이지는 [http://localhost:8080](http://localhost:8080), 운전자 화면은 [http://localhost:8080/app](http://localhost:8080/app)에서 엽니다. 배포도 `https://moagil-eta.vercel.app/`은 소개 페이지이고, 실제 운전자 화면은 `/app`, 참가 QR 화면은 세션별 `/join/<세션 ID>` 주소를 사용합니다. 기본 서버는 참가자의 휴대폰이 같은 네트워크에서 접속할 수 있도록 모든 네트워크 인터페이스에서 대기합니다.
 
 휴대폰이 다른 네트워크에 있으면 서버를 외부 HTTPS 주소나 임시 터널에 연결해야 합니다. 서버를 시작하기 전에 QR에 넣을 주소를 설정합니다.
 
@@ -73,7 +73,7 @@ $env:MOAGIL_PUBLIC_BASE_URL = 'https://공개-접속-주소'
 .\Start-MOAGIL.ps1
 ```
 
-터널 생성과 서버 공개는 별도로 준비해야 합니다. Android 에뮬레이터는 기본적으로 PC 서버를 `http://10.0.2.2:8080`에서 찾습니다.
+터널 생성과 서버 공개는 별도로 준비해야 합니다. Android 앱은 Kakao Maps 도메인을 고정하기 위해 기본적으로 배포 주소 `https://moagil-eta.vercel.app`에 연결합니다. 로컬 서버를 테스트할 때는 앱의 서버 주소 설정을 `http://10.0.2.2:8080`으로 바꿀 수 있지만, 이 로컬 주소를 Kakao Developers 허용 도메인에도 등록해야 지도가 표시됩니다.
 
 ### Vercel 고정 주소와 Supabase 데이터베이스
 
@@ -121,7 +121,7 @@ Pleos 화면에는 Kakao 지도가 표시됩니다. 기본 차량 내비게이�
 
 Kakao Local 검색과 Kakao Mobility 길찾기를 사용하려면 REST API 키를 루트 `.env`의 `MOAGIL_KAKAO_REST_API_KEY`에 넣고 서버를 재시작합니다. JavaScript 키의 Kakao Developers Web 플랫폼 허용 도메인에는 실제 PC 접속 주소와 QR 참가 주소를 등록합니다. Kakao Mobility Directions API 이용 한도와 요금을 확인하세요. REST 키는 브라우저로 보내지 않고 서버에서만 사용합니다.
 
-Kakao Maps를 표시하려면 JavaScript 키를 `MOAGIL_KAKAO_JAVASCRIPT_KEY`에 설정합니다. Kakao Developers에 실제 접속에 쓰는 모든 origin(예: `http://localhost:8080`, `http://127.0.0.1:8080`, Android Emulator의 `http://10.0.2.2:8080`, QR 공개 주소)을 JavaScript SDK 도메인으로 등록한 뒤 서버를 재시작합니다. Kakao SDK 키는 브라우저에서 사용되므로 등록한 도메인으로 제한합니다.
+Kakao Maps를 표시하려면 JavaScript 키를 `MOAGIL_KAKAO_JAVASCRIPT_KEY`에 설정합니다. 배포 앱은 고정 주소 `https://moagil-eta.vercel.app`에서 지도 SDK를 요청하므로 이 origin을 Kakao Developers의 JavaScript SDK 도메인에 등록합니다. 세션별 `/join/<세션 ID>`는 같은 origin 아래 경로라 각각 등록할 필요가 없습니다. 로컬에서 지도까지 시험할 때만 `http://localhost:8080`, `http://127.0.0.1:8080`, Android Emulator의 `http://10.0.2.2:8080`을 추가합니다.
 
 ## Android 및 Pleos
 

@@ -149,7 +149,7 @@ async function verifyPassengerAndDriverUi(browser, api, testSessions) {
   await installKakaoSdkMock(driver);
   const page = await driver.newPage();
   try {
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(baseUrl + '/app', { waitUntil: 'domcontentloaded' });
     await page.locator('#qr-card').waitFor({ timeout: 15_000 });
     await page.waitForFunction(() => {
       const value = JSON.parse(sessionStorage.getItem('moagil-driver') || 'null');

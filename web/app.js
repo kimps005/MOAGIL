@@ -134,13 +134,32 @@ async function getMapAdapter() {
   }
   if (!window.kakao?.maps?.Map && !kakaoMapScriptPromise) {
     kakaoMapScriptPromise = new Promise((resolve, reject) => {
+      let timeoutId;
+      const finish = (error) => {
+        clearTimeout(timeoutId);
+        if (error) reject(error);
+        else resolve();
+      };
+      const initializeMaps = () => {
+        const maps = window.kakao?.maps;
+        if (!maps?.load) {
+          finish(new Error('카카오 SDK는 응답했지만 지도 로더가 없습니다. Kakao Map 사용 설정을 확인해 주세요.'));
+          return;
+        }
+        try {
+          maps.load(() => maps.Map
+            ? finish()
+            : finish(new Error('카카오 지도 기능을 초기화하지 못했습니다. JavaScript 키의 도메인과 Kakao Map 사용 설정을 확인해 주세요.')));
+        } catch (_error) {
+          finish(new Error('카카오 지도 초기화에 실패했습니다. JavaScript 키와 Kakao Map 사용 설정을 확인해 주세요.'));
+        }
+      };
       const script = document.createElement('script');
-      script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(config.kakaoMapJavascriptKey);
+      script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(config.kakaoMapJavascriptKey) + '&autoload=false';
       script.async = true;
-      script.onload = () => window.kakao?.maps?.Map
-        ? resolve()
-        : reject(new Error('카카오 지도 JavaScript API를 초기화하지 못했습니다.'));
-      script.onerror = () => reject(new Error('카카오 지도 서버에 연결하지 못했습니다. 인터넷/DNS, JavaScript 키와 등록 도메인을 확인해 주세요.'));
+      script.onload = initializeMaps;
+      script.onerror = () => finish(new Error('카카오 지도 서버에 연결하지 못했습니다. 인터넷/DNS, JavaScript 키와 등록 도메인을 확인해 주세요.'));
+      timeoutId = setTimeout(() => finish(new Error('카카오 지도 초기화 응답이 늦어지고 있습니다. 네트워크와 키 설정을 확인해 주세요.')), 20000);
       document.head.appendChild(script);
     }).catch(error => {
       kakaoMapScriptPromise = null;
@@ -196,7 +215,7 @@ function driverMarkup() {
   if (!session || waiting) {
     const qrContent = capture ? `<div class='qr-masked'></div><span>촬영 보호 · QR 가림</span>` : `<canvas id='invite-qr' aria-label='동승자 초대 QR 코드'></canvas>`;
     const footerAction = session ? `<button class='tiny-button' data-action='copy'>링크 복사</button>` : `<button class='btn primary' data-action='new'>QR 다시 만들기</button>`;
-    return `<div class='app-shell qr-only-shell'><main class='qr-waiting'><a class='brand qr-brand' href='/'><span class='brand-mark'>M</span><span class='brand-name'>MOAGIL</span></a><div class='qr-intro'><div class='eyebrow'>공동 이동 초대</div><h1>QR을 스캔해<br>내릴 곳을 등록하세요</h1><p>위치를 등록하면 추천 하차 순서를 자동으로 계산합니다.</p></div><div class='qr-card qr-card-large ${capture ? 'capture-mode' : ''}' id='qr-card'>${qrContent}</div><div class='qr-waiting-footer'><span>${session ? '참여 대기 · 0 / 4명' : 'QR 세션을 준비하지 못했습니다'}</span>${footerAction}</div>${capture ? `<button class='tiny-button' data-action='preview'>참가 화면 미리보기</button>` : ''}</main>${capture ? `<div class='capture-chip'>촬영 보호 · 실제 초대 QR 가림</div>` : ''}</div>${phonePreview}`;
+    return `<div class='app-shell qr-only-shell'><main class='qr-waiting'><a class='brand qr-brand' href='/app'><span class='brand-mark'>M</span><span class='brand-name'>MOAGIL</span></a><div class='qr-intro'><div class='eyebrow'>공동 이동 초대</div><h1>QR을 스캔해<br>내릴 곳을 등록하세요</h1><p>위치를 등록하면 추천 하차 순서를 자동으로 계산합니다.</p></div><div class='qr-card qr-card-large ${capture ? 'capture-mode' : ''}' id='qr-card'>${qrContent}</div><div class='qr-waiting-footer'><span>${session ? '참여 대기 · 0 / 4명' : 'QR 세션을 준비하지 못했습니다'}</span>${footerAction}</div>${capture ? `<button class='tiny-button' data-action='preview'>참가 화면 미리보기</button>` : ''}</main>${capture ? `<div class='capture-chip'>촬영 보호 · 실제 초대 QR 가림</div>` : ''}</div>${phonePreview}`;
   }
   const collecting = ['COLLECTING', 'PLANNED'].includes(session.state);
   const order = currentOrder();
@@ -211,7 +230,7 @@ function driverMarkup() {
     ? `<div class='active-card'><div class='safety-banner ${state.navConfirmed ? 'ready' : ''}'>${esc(state.navMessage || '○ 다음 하차 목적지 안내를 확인해 주세요.')}</div><div class='active-destination'><small>다음 목적지 · ${esc(destination.type)}</small><strong>${esc(destination.label)}</strong></div><div class='route-actions'>${currentPassenger ? `<button class='btn primary' data-action='complete-stop' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>하차 완료</button>` : `<button class='btn primary' data-action='complete-trip' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>${finalArrived ? '최종 목적지 도착' : '이동 마무리'}</button>`}<button class='btn warn' data-action='end'>이동 취소</button></div></div>`
     : `<div class='route-actions'><button class='btn' data-action='plan' ${state.autoPlanning ? 'disabled' : ''}>${session.routeSnapshot ? '순서 다시 계산' : '다시 계산'}</button>${session.state === 'PLANNED' ? `<button class='btn primary' data-action='start' ${!state.parked ? 'disabled' : ''}>${state.parked ? '이 순서로 안내 시작' : '정차 확인 후 안내 시작'}</button>` : ''}</div>`;
   const mapCaption = session.routeSnapshot?.geometry?.length ? routeProviderLabel : state.autoPlanning ? '추천 순서 계산 중' : '등록 위치를 기다리는 중';
-  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/'><span class='brand-mark'>M</span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot orange'></i>다음 하차</span><span class='legend-item'><i class='legend-dot'></i>등록 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
+  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/app'><span class='brand-mark'>M</span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot orange'></i>다음 하차</span><span class='legend-item'><i class='legend-dot'></i>등록 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
 }
 
 function placeParts(feature) {
@@ -870,7 +889,7 @@ app.addEventListener('submit', event => {
 
 async function startApp() {
   await loadMapConfig();
-  if (location.pathname.startsWith('/join/')) return initializePassenger();
+  if (location.pathname === '/join' || location.pathname.startsWith('/join/')) return initializePassenger();
   sessionStorage.removeItem('moagil-parked');
   state.credentials = loadCredentials();
   if (state.credentials) {

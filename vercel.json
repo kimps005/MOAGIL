@@ -7,9 +7,11 @@
     }
   },
   "rewrites": [
-    { "source": "/", "destination": "/api/index?__moagil_path=/" },
+    { "source": "/", "destination": "/landing.html" },
     { "source": "/api", "destination": "/api/index?__moagil_path=/api" },
     { "source": "/api/:path*", "destination": "/api/index?__moagil_path=/api/:path*" },
+    { "source": "/app", "destination": "/index.html" },
+    { "source": "/app/:path*", "destination": "/index.html" },
     { "source": "/join", "destination": "/index.html" },
     { "source": "/join/:path*", "destination": "/index.html" }
   ]
