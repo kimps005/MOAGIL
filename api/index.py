@@ -17,6 +17,9 @@ class handler(moagil_server.Handler):
 
     def _path(self) -> str:
         routed_path = parse_qs(urlsplit(self.path).query).get("__moagil_path", [""])[0]
-        if routed_path.startswith("/api/") or routed_path == "/api":
+        if routed_path == "/" or routed_path.startswith("/api/") or routed_path == "/api":
             return routed_path
-        return super()._path()
+        path = super()._path()
+        # Vercel can dispatch the root request to this function using its
+        # rewritten destination path. Restore the public homepage path.
+        return "/" if path == "/api/index" else path

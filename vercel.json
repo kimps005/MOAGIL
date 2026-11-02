@@ -7,6 +7,7 @@
     }
   },
   "rewrites": [
+    { "source": "/", "destination": "/api/index?__moagil_path=/" },
     { "source": "/api", "destination": "/api/index?__moagil_path=/api" },
     { "source": "/api/:path*", "destination": "/api/index?__moagil_path=/api/:path*" },
     { "source": "/join", "destination": "/index.html" },

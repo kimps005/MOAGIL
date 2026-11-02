@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server
 from server import ApiError, Handler
+from api.index import handler as VercelHandler
 
 
 class FakeSocket:
@@ -72,6 +73,14 @@ class ServerGuardTests(unittest.TestCase):
         handler = object.__new__(StaticResponseHandler)
         with patch("server._ensure_db_ready", side_effect=AssertionError("homepage must not initialize the database")):
             self.assertEqual("/", handler.do_GET())
+
+    def test_vercel_rewritten_homepage_restores_root_path(self):
+        handler = object.__new__(VercelHandler)
+        handler.path = "/api/index?__moagil_path=/"
+        self.assertEqual("/", handler._path())
+
+        handler.path = "/api/index"
+        self.assertEqual("/", handler._path())
 
     def test_routing_provider_is_always_kakao_even_when_a_fallback_is_configured(self):
         for configured in ("", "osrm", "naver", "mock"):
