@@ -18,6 +18,20 @@ val escapedKakaoMapJavascriptKey = kakaoMapJavascriptKey
     .replace("\"", "\\\"")
     .replace("\r", "")
     .replace("\n", "\\n")
+val defaultApiBaseUrl = System.getenv("MOAGIL_API_BASE_URL").orEmpty().trim()
+    .ifBlank { "https://moagil-eta.vercel.app" }
+val escapedDefaultApiBaseUrl = defaultApiBaseUrl
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\r", "")
+    .replace("\n", "\\n")
+val kakaoMapOrigin = System.getenv("MOAGIL_KAKAO_MAP_ORIGIN").orEmpty().trim().trimEnd('/')
+    .ifBlank { "https://moagil-eta.vercel.app" }
+val escapedKakaoMapOrigin = kakaoMapOrigin
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\r", "")
+    .replace("\n", "\\n")
 
 android {
     namespace = "kr.moagil.vehicle"
@@ -31,6 +45,8 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "KAKAO_MAP_JAVASCRIPT_KEY", "\"$escapedKakaoMapJavascriptKey\"")
+        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"$escapedDefaultApiBaseUrl\"")
+        buildConfigField("String", "KAKAO_MAP_ORIGIN", "\"$escapedKakaoMapOrigin\"")
     }
 
     splits {
@@ -58,9 +74,15 @@ android {
     }
 
     buildTypes {
-        debug { }
+        debug {
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+            if (System.getenv("MOAGIL_QA_APPLICATION_SUFFIX") == "true") {
+                applicationIdSuffix = ".qa"
+            }
+        }
         release {
             isMinifyEnabled = false
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
         }
     }
 
