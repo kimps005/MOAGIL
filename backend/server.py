@@ -427,6 +427,30 @@ def _database_url() -> str:
     )
 
 
+def _database_failure_code(error: Exception) -> str:
+    sqlstate = getattr(error, "sqlstate", None)
+    message = str(error).lower()
+    if sqlstate == "28P01" or "password authentication failed" in message or "invalid password" in message:
+        return "DATABASE_AUTH_FAILED"
+    if sqlstate == "3D000" or "database does not exist" in message:
+        return "DATABASE_NAME_INVALID"
+    if sqlstate and (sqlstate.startswith("42") or sqlstate.startswith("3F")):
+        return "DATABASE_SCHEMA_ERROR"
+    if "tenant or user not found" in message:
+        return "DATABASE_POOLER_CREDENTIALS_INVALID"
+    if any(phrase in message for phrase in ("could not translate host", "name or service not known", "getaddrinfo failed", "no such host")):
+        return "DATABASE_HOST_UNRESOLVED"
+    if "timed out" in message or "timeout expired" in message:
+        return "DATABASE_CONNECTION_TIMEOUT"
+    if "connection refused" in message:
+        return "DATABASE_CONNECTION_REFUSED"
+    if any(phrase in message for phrase in ("invalid connection string", "invalid dsn", "missing '='")):
+        return "DATABASE_URL_INVALID"
+    if "ssl" in message or "certificate verify failed" in message:
+        return "DATABASE_SSL_ERROR"
+    return "DATABASE_UNAVAILABLE"
+
+
 def _connect():
     database_url = _database_url()
     if database_url:
@@ -758,11 +782,11 @@ class Handler(BaseHTTPRequestHandler):
                     })
                 try:
                     _ensure_db_ready()
-                except Exception:
+                except Exception as error:
                     logging.exception("Database health check failed")
                     return self._send_json(503, {
                         "status": "unavailable",
-                        "code": "DATABASE_UNAVAILABLE",
+                        "code": _database_failure_code(error),
                         "message": "Supabase 연결 또는 데이터베이스 초기화를 확인해 주세요.",
                     })
                 return self._send_json(200, {"status": "ok", "mode": routing_provider(), "database": "ok"})

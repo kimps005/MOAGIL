@@ -118,6 +118,16 @@ class ServerGuardTests(unittest.TestCase):
         self.assertEqual("DATABASE_UNAVAILABLE", payload["code"])
         self.assertNotIn("private.invalid", str(payload))
 
+    def test_database_health_codes_classify_authentication_dns_and_timeout_failures(self):
+        cases = (
+            (RuntimeError("password authentication failed"), "DATABASE_AUTH_FAILED"),
+            (OSError("could not translate host name"), "DATABASE_HOST_UNRESOLVED"),
+            (TimeoutError("connection timed out"), "DATABASE_CONNECTION_TIMEOUT"),
+        )
+        for error, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(expected, server._database_failure_code(error))
+
     def test_vercel_rewritten_homepage_restores_root_path(self):
         handler = object.__new__(VercelHandler)
         handler.path = "/api/index?__moagil_path=/"
