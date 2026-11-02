@@ -70,7 +70,7 @@ fun KakaoVehicleMap(
                     }
 
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                        if (!request.isForMainFrame && request.url.scheme == "https") {
+                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin)) {
                             val host = request.url.host ?: "카카오 지도 서버"
                             val path = request.url.encodedPath.orEmpty()
                             val cause = error.description?.toString()?.takeIf { it.isNotBlank() }
@@ -91,7 +91,7 @@ fun KakaoVehicleMap(
                     }
 
                     override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-                        if (!request.isForMainFrame && request.url.scheme == "https" && response.statusCode >= 400) {
+                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin) && response.statusCode >= 400) {
                             val host = request.url.host ?: "카카오 지도 서버"
                             val path = request.url.encodedPath.orEmpty()
                             val message = "카카오 지도 서버가 요청을 거부했어요 ($host$path · 페이지 ${origin ?: "origin 없음"} · HTTP ${response.statusCode}). JavaScript 키의 등록 도메인과 지도 사용 설정을 확인해 주세요."
@@ -213,6 +213,21 @@ private fun webOrigin(value: String): String? = runCatching {
     if (scheme !in setOf("http", "https") || authority.isNullOrBlank()) null
     else "$scheme://$authority"
 }.getOrNull()
+
+private fun isKakaoMapResource(url: Uri, assetOrigin: String): Boolean {
+    val host = url.host?.lowercase() ?: return false
+    if (
+        host == "dapi.kakao.com" ||
+        host == "kakaocdn.net" || host.endsWith(".kakaocdn.net") ||
+        host == "daumcdn.net" || host.endsWith(".daumcdn.net")
+    ) return true
+
+    val asset = Uri.parse(assetOrigin)
+    return url.scheme == "https" &&
+        host == asset.host?.lowercase() &&
+        url.port == asset.port &&
+        url.encodedPath in setOf("/utils.js", "/kakao-map.js")
+}
 
 private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: String): String {
     val originLiteral = jsLiteral(origin)
