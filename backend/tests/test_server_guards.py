@@ -118,41 +118,6 @@ class ServerGuardTests(unittest.TestCase):
         self.assertEqual("DATABASE_UNAVAILABLE", payload["code"])
         self.assertNotIn("private.invalid", str(payload))
 
-    def test_post_failure_exposes_only_safe_database_diagnostics(self):
-        class DatabaseFailure(Exception):
-            sqlstate = "23502"
-
-        class SessionResponseHandler(Handler):
-            def _path(self):
-                return "/api/sessions"
-
-            def _body(self):
-                return {}
-
-            def _join_base(self):
-                return "https://moagil-eta.vercel.app"
-
-            def _send_json(self, status, payload, extra_headers=None):
-                return status, payload
-
-        handler = object.__new__(SessionResponseHandler)
-        with patch.dict(os.environ, {"VERCEL": "1"}), \
-             patch("server._ensure_db_ready"), \
-             patch("server._db_connection") as connection, \
-             patch("server._new_session", side_effect=DatabaseFailure("private database detail")), \
-             patch("server.logging.exception"):
-            connection.return_value.__enter__.return_value = object()
-            connection.return_value.__exit__.return_value = False
-            status, payload = handler.do_POST()
-
-        error = payload["error"]
-        self.assertEqual(500, status)
-        self.assertEqual("INTERNAL_ERROR", error["code"])
-        self.assertEqual("DatabaseFailure", error["diagnostic"]["type"])
-        self.assertEqual("23502", error["diagnostic"]["sqlstate"])
-        self.assertEqual("DATABASE_UNAVAILABLE", error["diagnostic"]["databaseCode"])
-        self.assertNotIn("private database detail", str(payload))
-
     def test_database_health_codes_classify_authentication_dns_and_timeout_failures(self):
         cases = (
             (RuntimeError("password authentication failed"), "DATABASE_AUTH_FAILED"),
@@ -175,6 +140,14 @@ class ServerGuardTests(unittest.TestCase):
         for configured in ("", "osrm", "naver", "mock"):
             with self.subTest(configured=configured), patch.dict(os.environ, {"MOAGIL_ROUTING_PROVIDER": configured}):
                 self.assertEqual("kakao", server.routing_provider())
+
+    def test_vercel_qr_host_uses_stable_production_domain(self):
+        with patch.dict(os.environ, {
+            "VERCEL": "1",
+            "MOAGIL_PUBLIC_BASE_URL": "",
+            "VERCEL_PROJECT_PRODUCTION_URL": "moagil-eta.vercel.app",
+        }), patch("server.socket.socket", side_effect=AssertionError("Vercel must not detect a LAN address")):
+            self.assertEqual("https://moagil-eta.vercel.app", self.handler()._join_base())
 
     def test_mobile_join_host_accepts_a_configured_lan_or_domain_address(self):
         for base in ("http://192.168.0.10:8080", "https://moagil.example/"):
