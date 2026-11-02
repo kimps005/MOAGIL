@@ -899,9 +899,21 @@ class Handler(BaseHTTPRequestHandler):
             self._error(ApiError(503, "ROUTING_UNAVAILABLE", str(error)))
         except BrokenPipeError:
             return
-        except Exception:
+        except Exception as error:
             logging.exception("Unhandled POST request failure")
-            self._error(ApiError(500, "INTERNAL_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요"))
+            diagnostic = {"type": type(error).__name__}
+            sqlstate = getattr(error, "sqlstate", None)
+            if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate):
+                diagnostic["sqlstate"] = sqlstate
+                diagnostic["databaseCode"] = _database_failure_code(error)
+            self._send_json(500, {
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요",
+                    "requestId": str(uuid.uuid4()),
+                    "diagnostic": diagnostic,
+                },
+            })
 
     def do_PUT(self):
         try:
