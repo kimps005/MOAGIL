@@ -214,7 +214,7 @@ private fun webOrigin(value: String): String? = runCatching {
     else "$scheme://$authority"
 }.getOrNull()
 
-private fun isKakaoMapResource(url: Uri, assetOrigin: String): Boolean {
+private fun isKakaoMapResource(url: Uri, assetOrigin: String?): Boolean {
     val host = url.host?.lowercase() ?: return false
     if (
         host == "dapi.kakao.com" ||
@@ -222,7 +222,7 @@ private fun isKakaoMapResource(url: Uri, assetOrigin: String): Boolean {
         host == "daumcdn.net" || host.endsWith(".daumcdn.net")
     ) return true
 
-    val asset = Uri.parse(assetOrigin)
+    val asset = assetOrigin?.let { Uri.parse(it) } ?: return false
     return url.scheme == "https" &&
         host == asset.host?.lowercase() &&
         url.port == asset.port &&
