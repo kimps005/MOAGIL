@@ -37,6 +37,7 @@ import org.json.JSONObject
 @Composable
 fun KakaoVehicleMap(
     session: DriverSession,
+    currentLocation: Point? = null,
     javascriptKey: String,
     mapBaseUrl: String,
     assetBaseUrl: String,
@@ -50,7 +51,9 @@ fun KakaoVehicleMap(
     val html = remember(origin, assetOrigin, key) {
         if (origin == null || assetOrigin == null || key.isEmpty()) null else vehicleMapHtml(origin, assetOrigin, key)
     }
-    val payload = remember(session.sessionId, session.version) { session.toKakaoMapPayload() }
+    val payload = remember(session.sessionId, session.version, currentLocation) {
+        session.toKakaoMapPayload(currentLocation)
+    }
     val webView = remember(origin, key, html) {
         html?.let { page ->
             WebView(context).apply {
@@ -70,7 +73,7 @@ fun KakaoVehicleMap(
                     }
 
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin)) {
+                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin.orEmpty())) {
                             val host = request.url.host ?: "카카오 지도 서버"
                             val path = request.url.encodedPath.orEmpty()
                             val cause = error.description?.toString()?.takeIf { it.isNotBlank() }
@@ -91,7 +94,7 @@ fun KakaoVehicleMap(
                     }
 
                     override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin) && response.statusCode >= 400) {
+                        if (!request.isForMainFrame && isKakaoMapResource(request.url, assetOrigin.orEmpty()) && response.statusCode >= 400) {
                             val host = request.url.host ?: "카카오 지도 서버"
                             val path = request.url.encodedPath.orEmpty()
                             val message = "카카오 지도 서버가 요청을 거부했어요 ($host$path · 페이지 ${origin ?: "origin 없음"} · HTTP ${response.statusCode}). JavaScript 키의 등록 도메인과 지도 사용 설정을 확인해 주세요."
@@ -173,7 +176,7 @@ private fun MapMessage(title: String, detail: String) {
     }
 }
 
-private fun DriverSession.toKakaoMapPayload(): String {
+private fun DriverSession.toKakaoMapPayload(currentLocation: Point?): String {
     fun pointJson(point: Point) = JSONObject()
         .put("lat", point.lat)
         .put("lon", point.lon)
@@ -198,7 +201,7 @@ private fun DriverSession.toKakaoMapPayload(): String {
         .put("geometry", geometry)
 
     return JSONObject()
-        .put("startPoint", pointJson(startPoint))
+        .put("startPoint", pointJson(currentLocation ?: startPoint))
         .put("finalPoint", finalPoint?.let(::pointJson) ?: JSONObject.NULL)
         .put("passengers", passengerJson)
         .put("selectedOrder", JSONArray(order))
@@ -214,7 +217,7 @@ private fun webOrigin(value: String): String? = runCatching {
     else "$scheme://$authority"
 }.getOrNull()
 
-private fun isKakaoMapResource(url: Uri, assetOrigin: String?): Boolean {
+private fun isKakaoMapResource(url: Uri, assetOrigin: String): Boolean {
     val host = url.host?.lowercase() ?: return false
     if (
         host == "dapi.kakao.com" ||
@@ -222,7 +225,7 @@ private fun isKakaoMapResource(url: Uri, assetOrigin: String?): Boolean {
         host == "daumcdn.net" || host.endsWith(".daumcdn.net")
     ) return true
 
-    val asset = assetOrigin?.let { Uri.parse(it) } ?: return false
+    val asset = Uri.parse(assetOrigin)
     return url.scheme == "https" &&
         host == asset.host?.lowercase() &&
         url.port == asset.port &&
@@ -364,10 +367,29 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
                 return false;
               }
             }
+            function sameSessionExceptStartPoint(left, right) {
+              if (!left || !right) return false;
+              const leftCopy = { ...left };
+              const rightCopy = { ...right };
+              delete leftCopy.startPoint;
+              delete rightCopy.startPoint;
+              return JSON.stringify(leftCopy) === JSON.stringify(rightCopy);
+            }
             window.moagilSetSession = function(serializedSession) {
               try {
                 const nextSession = JSON.parse(serializedSession);
                 if (mapController && JSON.stringify(nextSession) === JSON.stringify(pendingSession)) return;
+                if (mapController && sameSessionExceptStartPoint(pendingSession, nextSession)) {
+                  pendingSession = nextSession;
+                  if (mapController.setStartPoint) {
+                    mapController.setStartPoint(nextSession.startPoint);
+                  } else if (mapController.map && nextSession.startPoint) {
+                    mapController.map.setCenter(new window.kakao.maps.LatLng(
+                      Number(nextSession.startPoint.lat), Number(nextSession.startPoint.lon)
+                    ));
+                  }
+                  return;
+                }
                 pendingSession = nextSession;
                 renderSession();
               } catch (_) {
@@ -458,3 +480,4 @@ private class VehicleMapBindingState {
         }
     }
 }
+
