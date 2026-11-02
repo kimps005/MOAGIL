@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 13857)
-Total output lines: 957
-
 package kr.moagil.vehicle
 
 import android.graphics.Bitmap
@@ -351,8 +348,8 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                     session = session,
                     currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
                     javascriptKey = state.kakaoMapJavascriptKey,
-                    mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
-                    assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                    mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
+                    assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                     modifier = Modifier.weight(1.4f).fillMaxHeight(),
                 )
                 if (terminal) {
@@ -376,8 +373,8 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                         session = session,
                         currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
                         javascriptKey = state.kakaoMapJavascriptKey,
-                        mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
-                        assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                        mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
+                        assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                         modifier = Modifier.weight(1.5f).fillMaxHeight(),
                     )
                     if (terminal) {
@@ -393,8 +390,8 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                             session = session,
                             currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
                             javascriptKey = state.kakaoMapJavascriptKey,
-                            mapBaseUrl = credentials?.joinBaseUrl ?: state.apiBaseUrl,
-                            assetBaseUrl = credentials?.apiBaseUrl ?: state.apiBaseUrl,
+                            mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
+                            assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                             modifier = Modifier.fillMaxWidth().height(360.dp),
                         )
                     }
@@ -459,7 +456,160 @@ private fun LiveStopsPanel(
                 val kilometers = it.distanceM?.let { meters -> String.format(Locale.US, "%.1fkm", meters / 1000.0) }.orEmpty()
                 Row(
                     Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(14.dp)).padding(horizontal = 13.dp, vertical = 9.dp),
-       …1857 tokens truncated…al: Boolean,
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("${minutes}분", color = Color(0xFF36457F), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Box(Modifier.size(4.dp).background(Color(0xFF8995D7), CircleShape))
+                    Text(kilometers, color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            LazyColumn(
+                Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                items(orderedPeople, key = { it.id }) { passenger ->
+                    val friendIndex = registrationIndex[passenger.id] ?: 0
+                    FriendStopRow(
+                        passenger = passenger,
+                        friendLabel = friendLabel(friendIndex),
+                        priority = session.priorityPassengerId == passenger.id,
+                        canPin = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
+                        onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
+                    )
+                }
+                if (session.state == "ACTIVE") {
+                    item { ActiveCard(session, state, model, onFinish) }
+                }
+            }
+
+            if (session.state in setOf("COLLECTING", "PLANNED")) {
+                CompactInviteQr(session, joinBaseUrl, inviteToken)
+            }
+            if (session.state == "PLANNED" && route != null) {
+                Button(
+                    onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
+                    enabled = state.canOperate && !state.busy,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Text("안내 시작", fontWeight = FontWeight.Bold)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("정차", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                    Text(if (state.canOperate) state.vehicleContext.message else "차량 상태 확인 필요", color = if (state.canOperate) Success else Muted, fontSize = 12.sp)
+                } else {
+                    Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() }, enabled = !state.busy)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FriendStopRow(
+    passenger: Passenger,
+    friendLabel: String,
+    priority: Boolean,
+    canPin: Boolean,
+    onPin: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(if (priority) AccentSoft else Color(0xFFF7F8FC))
+            .border(1.dp, if (priority) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        val emoji = passengerEmoji(passenger.displayName)
+        Box(Modifier.size(48.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
+            Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 25.sp else 20.sp)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(passenger.point.label, color = Muted, fontSize = 16.sp, lineHeight = 21.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        IconButton(
+            onClick = onPin,
+            enabled = canPin,
+            modifier = Modifier.size(48.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(15.dp))
+                .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
+        ) {
+            Text("📌", fontSize = 22.sp)
+        }
+    }
+}
+
+@Composable
+private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteToken: String) {
+    val url = remember(joinBaseUrl, session.sessionId, inviteToken) {
+        if (joinBaseUrl.isBlank() || inviteToken.isBlank()) "" else "${joinBaseUrl.trimEnd('/')}/join/${session.sessionId}?invite=$inviteToken"
+    }
+    val image = remember(url) { url.takeIf(String::isNotBlank)?.let(::renderQr) }
+    Box(
+        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(18.dp)).padding(10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (image != null) {
+            Image(
+                image.asImageBitmap(),
+                contentDescription = "친구 초대 QR",
+                modifier = Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(10.dp),
+            )
+        } else {
+            Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)))
+        }
+    }
+}
+
+private fun friendLabel(index: Int): String = "친구 ${(index.coerceIn(0, 25) + 'A'.code).toChar()}"
+
+private val passengerAvatarEmojis = setOf(
+    "🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐",
+    "🚎", "🚐", "🚓", "🚑", "🚒", "🚚", "🚛", "🛵", "🏍️", "✈️",
+    "🐻", "🐨", "🐯", "🦁", "🐸", "🐵", "🐧", "🦉", "🦄", "🐝", "🦋", "🐢",
+    "🐬", "🐳", "🦈", "🐙", "🦖", "🐘", "🌈", "☀️", "🌹", "🌻", "🍀", "🍁",
+    "🍎", "🍉", "🍓", "🍕", "🧋", "⚽",
+)
+
+private fun passengerEmoji(displayName: String): String? = passengerAvatarEmojis.firstOrNull { displayName.startsWith("$it ") }
+
+private fun passengerName(displayName: String): String =
+    passengerEmoji(displayName)?.let { displayName.removePrefix("$it ").trim() } ?: displayName
+
+@Composable
+private fun SessionDetailsColumn(
+    session: DriverSession,
+    state: DriverUiState,
+    model: MoagilViewModel,
+    joinBaseUrl: String,
+    inviteToken: String,
+    onDelete: (Passenger) -> Unit,
+    onFinish: () -> Unit,
+    terminal: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        sessionDetailItems(session, state, model, joinBaseUrl, inviteToken, onDelete, onFinish, terminal)
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.sessionDetailItems(
+    session: DriverSession,
+    state: DriverUiState,
+    model: MoagilViewModel,
+    joinBaseUrl: String,
+    inviteToken: String,
+    onDelete: (Passenger) -> Unit,
+    onFinish: () -> Unit,
+    terminal: Boolean,
 ) {
     item { InviteCard(session, joinBaseUrl, inviteToken) }
     if (BuildConfig.PLEOS_NATIVE_NAVIGATION) item { PleosSplitScreenHint() }
@@ -804,4 +954,3 @@ private fun formatTime(iso: String): String = runCatching {
     val date: Date = parser.parse(iso.take(20)) ?: return@runCatching "정보 없음"
     SimpleDateFormat("HH:mm", Locale.KOREA).format(date)
 }.getOrDefault("정보 없음")
-
