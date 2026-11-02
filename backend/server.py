@@ -419,12 +419,16 @@ class _PostgresConnection:
         self._connection.close()
 
 
-def _connect():
-    database_url = (
+def _database_url() -> str:
+    return (
         os.environ.get("MOAGIL_DATABASE_URL", "").strip()
         or os.environ.get("DATABASE_URL", "").strip()
         or os.environ.get("POSTGRES_URL", "").strip()
     )
+
+
+def _connect():
+    database_url = _database_url()
     if database_url:
         import psycopg
         from psycopg.rows import dict_row
@@ -746,8 +750,22 @@ class Handler(BaseHTTPRequestHandler):
         try:
             path = self._path()
             if path == "/api/health":
-                _ensure_db_ready()
-                return self._send_json(200, {"status": "ok", "mode": routing_provider()})
+                if os.environ.get("VERCEL") == "1" and not _database_url():
+                    return self._send_json(503, {
+                        "status": "unavailable",
+                        "code": "DATABASE_CONFIG_MISSING",
+                        "message": "Vercel Production에 MOAGIL_DATABASE_URL이 설정되지 않았습니다.",
+                    })
+                try:
+                    _ensure_db_ready()
+                except Exception:
+                    logging.exception("Database health check failed")
+                    return self._send_json(503, {
+                        "status": "unavailable",
+                        "code": "DATABASE_UNAVAILABLE",
+                        "message": "Supabase 연결 또는 데이터베이스 초기화를 확인해 주세요.",
+                    })
+                return self._send_json(200, {"status": "ok", "mode": routing_provider(), "database": "ok"})
             if path == "/api/config":
                 kakao_map_key = os.environ.get("MOAGIL_KAKAO_JAVASCRIPT_KEY", "").strip()
                 return self._send_json(200, {

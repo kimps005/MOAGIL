@@ -79,6 +79,45 @@ class ServerGuardTests(unittest.TestCase):
             handler.do_GET()
         self.assertEqual(["/"], served_paths)
 
+    def test_health_identifies_missing_hosted_database_configuration(self):
+        class HealthResponseHandler(Handler):
+            def _path(self):
+                return "/api/health"
+
+            def _send_json(self, status, payload, extra_headers=None):
+                return status, payload
+
+        handler = object.__new__(HealthResponseHandler)
+        with patch.dict(os.environ, {
+            "VERCEL": "1",
+            "MOAGIL_DATABASE_URL": "",
+            "DATABASE_URL": "",
+            "POSTGRES_URL": "",
+        }), patch("server._ensure_db_ready") as initialize_database:
+            status, payload = handler.do_GET()
+
+        self.assertEqual(503, status)
+        self.assertEqual("DATABASE_CONFIG_MISSING", payload["code"])
+        initialize_database.assert_not_called()
+
+    def test_health_identifies_database_connection_failure_without_leaking_url(self):
+        class HealthResponseHandler(Handler):
+            def _path(self):
+                return "/api/health"
+
+            def _send_json(self, status, payload, extra_headers=None):
+                return status, payload
+
+        handler = object.__new__(HealthResponseHandler)
+        with patch.dict(os.environ, {"VERCEL": "1", "MOAGIL_DATABASE_URL": "postgresql://private.invalid/db"}), \
+             patch("server._ensure_db_ready", side_effect=OSError("connection failed")), \
+             patch("server.logging.exception"):
+            status, payload = handler.do_GET()
+
+        self.assertEqual(503, status)
+        self.assertEqual("DATABASE_UNAVAILABLE", payload["code"])
+        self.assertNotIn("private.invalid", str(payload))
+
     def test_vercel_rewritten_homepage_restores_root_path(self):
         handler = object.__new__(VercelHandler)
         handler.path = "/api/index?__moagil_path=/"
