@@ -2,7 +2,7 @@
   "name": "moagil-prototype",
   "version": "1.0.0",
   "private": true,
-  "description": "MOAGIL browser prototype test and demo-video tooling",
+  "description": "MOAGIL browser prototype and test tooling",
   "scripts": {
     "test:domain": "python -m unittest discover -s backend/tests -v",
     "test:ui": "node demo/test-ui-flow.cjs",
@@ -10,7 +10,6 @@
     "record:demo": "node demo/run-demo.cjs --record"
   },
   "devDependencies": {
-    "leaflet": "1.9.4",
     "playwright": "1.62.1"
   }
 }

@@ -98,9 +98,6 @@ button:active:not(:disabled) { transform: scale(.985); }
 .legend-dot { background: var(--accent); }
 .legend-dot.orange { background: #e69756; }
 .legend-dot.dark { background: #424d68; }
-.leaflet-control-zoom a, .leaflet-control-attribution { color: #444d64 !important; border-color: rgba(110,122,158,.16) !important; background: rgba(255,255,255,.86) !important; backdrop-filter: blur(12px); }
-.leaflet-control-zoom a { width: 34px !important; height: 34px !important; line-height: 32px !important; }
-
 .passenger-row { border: 1px solid rgba(112,124,158,.1); border-radius: 16px; background: rgba(248,249,253,.9); padding: 12px 14px; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 .passenger-row:hover { border-color: rgba(93,112,230,.2); background: #fff; transform: translateY(-1px); }
 .avatar, .order-number { color: var(--accent-strong); background: #e9ecff; }

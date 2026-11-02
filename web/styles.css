@@ -499,8 +499,6 @@ body.passenger-body {
 .passenger-result { border: 1px solid rgba(255,255,255,.86); background: rgba(255,255,255,.7); backdrop-filter: blur(22px); }
 .success-mark { color: #fff; background: linear-gradient(145deg,#8296ff,#6074ee); }
 .loading-card { color: #596276; border-color: rgba(255,255,255,.9); background: rgba(255,255,255,.74); backdrop-filter: blur(22px); }
-.leaflet-control-zoom a, .leaflet-control-attribution { color: #4a5367 !important; background: rgba(255,255,255,.8) !important; backdrop-filter: blur(14px); }
-
 @media (max-width: 560px) {
   .passenger-shell { padding-right: 16px; padding-left: 16px; }
   .destination-card { padding: 11px; }
