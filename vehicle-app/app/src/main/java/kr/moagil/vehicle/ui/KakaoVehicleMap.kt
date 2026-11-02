@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kr.moagil.vehicle.BuildConfig
 import kr.moagil.vehicle.data.DriverSession
 import kr.moagil.vehicle.data.Point
 import org.json.JSONArray
@@ -55,6 +56,7 @@ fun KakaoVehicleMap(
         session.toKakaoMapPayload(currentLocation)
     }
     val webView = remember(origin, key, html) {
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         html?.let { page ->
             WebView(context).apply {
                 setBackgroundColor(AndroidColor.rgb(241, 244, 250))
@@ -323,7 +325,9 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
               return performance.getEntriesByType('resource').some(function(resource) {
                 try {
                   const url = new URL(resource.name);
-                  return /(^|\.)map\d*\.daumcdn\.net$/i.test(url.hostname) && /\/map_2d\//i.test(url.pathname);
+                  const legacyTile = /(^|\.)map\d*\.daumcdn\.net$/i.test(url.hostname) && /\/map_2d\//i.test(url.pathname);
+                  const currentTile = /(^|\.)mts\.kakaocdn\.net$/i.test(url.hostname) && /\/api\/v1\/tile\/[^/]+\/[^/]+\/latest\/\d+\//i.test(url.pathname);
+                  return legacyTile || currentTile;
                 } catch (_) {
                   return false;
                 }
@@ -334,8 +338,16 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
               const script = document.createElement('script');
               script.src = src;
               script.onload = onload;
-              script.onerror = onerror;
+              script.onerror = function() { if (onerror) onerror(src); };
               document.head.appendChild(script);
+            }
+            function describeScriptUrl(value) {
+              try {
+                const url = new URL(value);
+                return url.host + url.pathname;
+              } catch (_) {
+                return '지도 서버 주소';
+              }
             }
             function renderSession() {
               if (!pendingSession || !window.MOAGILKakaoMaps || !window.kakao?.maps?.Map) return false;
@@ -425,15 +437,15 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
                       }
                       setMapStage('등록된 위치를 지도에 표시하고 있어요.');
                       if (pendingSession && !renderSession()) showMapError('경로 정보를 카카오 지도에 표시하지 못했습니다.');
-                    }, function() {
-                      if (generation === mapLoadGeneration) showMapError('카카오 지도 화면 파일을 불러오지 못했습니다. 서버 연결을 확인해 주세요.');
+                    }, function(failedUrl) {
+                      if (generation === mapLoadGeneration) showMapError('카카오 지도 화면 파일을 불러오지 못했습니다 (' + describeScriptUrl(failedUrl) + '). 서버 연결을 확인해 주세요.');
                     });
                   });
-                }, function() {
-                  if (generation === mapLoadGeneration) showMapError('카카오 지도 SDK 연결에 실패했습니다. 인터넷, DNS, 키와 등록 도메인을 확인해 주세요.');
+                }, function(failedUrl) {
+                  if (generation === mapLoadGeneration) showMapError('카카오 지도 SDK 연결에 실패했습니다 (' + describeScriptUrl(failedUrl) + '). 인터넷, DNS, 키와 등록 도메인을 확인해 주세요.');
                 });
-              }, function() {
-                if (generation === mapLoadGeneration) showMapError('지도 설정 파일을 불러오지 못했습니다. 서버 주소를 확인해 주세요.');
+              }, function(failedUrl) {
+                if (generation === mapLoadGeneration) showMapError('지도 설정 파일을 불러오지 못했습니다 (' + describeScriptUrl(failedUrl) + '). 서버 주소를 확인해 주세요.');
               });
               setTimeout(function() {
                 if (generation === mapLoadGeneration && !mapController && !status.classList.contains('error')) {
@@ -480,4 +492,3 @@ private class VehicleMapBindingState {
         }
     }
 }
-
