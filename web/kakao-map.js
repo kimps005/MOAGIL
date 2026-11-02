@@ -60,7 +60,11 @@
     const passengerById = new Map(passengers.map(person => [person.id, person]));
     const order = session.selectedOrder || session.routeSnapshot?.order || passengers.map(person => person.id);
 
-    addDriverPoint(map, start, '출발', 'start', '출발 위치', overlays, bounds);
+    const startOverlay = addLabel(map, start, '출발', 'start', '출발 위치');
+    if (startOverlay) {
+      overlays.push(startOverlay);
+      bounds.push(latLng(start));
+    }
     order.forEach((id, index) => {
       const person = passengerById.get(id);
       if (person) {
@@ -107,6 +111,12 @@
     fitMap(map, bounds);
     return {
       map,
+      setStartPoint: next => {
+        if (!next || !Number.isFinite(Number(next.lat)) || !Number.isFinite(Number(next.lon))) return;
+        const position = latLng(next);
+        startOverlay?.setPosition(position);
+        map.panTo(position);
+      },
       destroy: () => overlays.forEach(overlay => overlay.setMap(null)),
     };
   }
@@ -142,3 +152,4 @@
 
   window.MOAGILKakaoMaps = { createDriverMap, createPassengerMap };
 })();
+
