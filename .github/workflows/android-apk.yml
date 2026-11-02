@@ -1,0 +1,40 @@
+name: Android APK validation
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "vehicle-app/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android build tools
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      - name: Run unit tests and build Mock and Pleos APKs
+        working-directory: vehicle-app
+        run: ./gradlew testMockDebugUnitTest assembleMockDebug assemblePleosDebug
+      - name: Verify and upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: moagil-android-debug-apks
+          path: |
+            vehicle-app/app/build/outputs/apk/mock/debug/*.apk
+            vehicle-app/app/build/outputs/apk/pleos/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
