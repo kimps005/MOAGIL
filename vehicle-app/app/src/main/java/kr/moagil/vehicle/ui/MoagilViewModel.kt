@@ -52,7 +52,7 @@ data class DriverUiState(
     val cancelConfirmation: Boolean = false,
 )
 
-private const val PRODUCTION_SERVICE_URL = "https://moagil-eta.vercel.app"
+private const val PRODUCTION_SERVICE_URL = BuildConfig.DEFAULT_API_BASE_URL
 
 private fun isLocalServiceUrl(value: String): Boolean {
     val host = Uri.parse(value.trim()).host?.lowercase() ?: return true
