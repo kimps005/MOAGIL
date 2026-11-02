@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "web",
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "{apk/**,backend/data/**,backend/tests/**,demo/**,docs/**,vehicle-app/**,web/**,**/__pycache__/**,**/*.pyc}"
+    }
+  },
   "rewrites": [
     { "source": "/api", "destination": "/api/index?__moagil_path=/api" },
     { "source": "/api/:path*", "destination": "/api/index?__moagil_path=/api/:path*" },
