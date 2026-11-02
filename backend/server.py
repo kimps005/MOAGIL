@@ -13,7 +13,6 @@ import secrets
 import socket
 import sqlite3
 import threading
-import traceback
 import time
 import uuid
 from collections import OrderedDict, deque
@@ -900,28 +899,9 @@ class Handler(BaseHTTPRequestHandler):
             self._error(ApiError(503, "ROUTING_UNAVAILABLE", str(error)))
         except BrokenPipeError:
             return
-        except Exception as error:
+        except Exception:
             logging.exception("Unhandled POST request failure")
-            frames = traceback.extract_tb(error.__traceback__)
-            diagnostic = {
-                "type": type(error).__name__,
-                "trace": [
-                    {"file": Path(frame.filename).name, "function": frame.name, "line": frame.lineno}
-                    for frame in frames[-4:]
-                ],
-            }
-            sqlstate = getattr(error, "sqlstate", None)
-            if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate):
-                diagnostic["sqlstate"] = sqlstate
-                diagnostic["databaseCode"] = _database_failure_code(error)
-            self._send_json(500, {
-                "error": {
-                    "code": "INTERNAL_ERROR",
-                    "message": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요",
-                    "requestId": str(uuid.uuid4()),
-                    "diagnostic": diagnostic,
-                },
-            })
+            self._error(ApiError(500, "INTERNAL_ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요"))
 
     def do_PUT(self):
         try:
@@ -1208,10 +1188,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, _snapshot(db, _session_row(db, session_id)))
 
     def _join_base(self):
-        configured = os.environ.get("MOAGIL_PUBLIC_BASE_URL", "").strip()
-        if not configured and os.environ.get("VERCEL") == "1":
+        if os.environ.get("VERCEL") == "1":
             production_host = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL", "").strip()
             configured = "https://" + (production_host or "moagil-eta.vercel.app")
+        else:
+            configured = os.environ.get("MOAGIL_PUBLIC_BASE_URL", "").strip()
         if configured:
             parsed = urlsplit(configured)
             host = (parsed.hostname or "").lower().rstrip(".")

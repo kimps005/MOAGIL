@@ -144,7 +144,7 @@ class ServerGuardTests(unittest.TestCase):
     def test_vercel_qr_host_uses_stable_production_domain(self):
         with patch.dict(os.environ, {
             "VERCEL": "1",
-            "MOAGIL_PUBLIC_BASE_URL": "",
+            "MOAGIL_PUBLIC_BASE_URL": "https://[invalid",
             "VERCEL_PROJECT_PRODUCTION_URL": "moagil-eta.vercel.app",
         }), patch("server.socket.socket", side_effect=AssertionError("Vercel must not detect a LAN address")):
             self.assertEqual("https://moagil-eta.vercel.app", self.handler()._join_base())
