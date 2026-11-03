@@ -18,6 +18,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,6 +29,8 @@ fun createNavigationPort(context: Context): NavigationPort = PleosNavigationPort
 private class PleosNavigationPort(context: Context) : NavigationPort {
     companion object {
         private const val TAG = "MOAGIL_PLEOS_ROUTE"
+        private const val CONNECTION_TIMEOUT_MS = 15_000L
+        private const val ROUTE_RESPONSE_TIMEOUT_MS = 30_000L
     }
 
     private val appContext = context.applicationContext
@@ -91,7 +94,11 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
                         )
                     }
                 }
-                pending.result.await()
+                withTimeoutOrNull(ROUTE_RESPONSE_TIMEOUT_MS) { pending.result.await() }
+                    ?: NavigationResult.Rejected(
+                        "Pleos 내비에서 30초 동안 경로 응답이 없습니다. 연결 상태를 확인하고 다시 요청해 주세요.",
+                        pending.elapsedMs(),
+                    )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: SecurityException) {
@@ -181,7 +188,12 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
             onFailed = { error -> ready.complete(Result.failure(error)) },
         )
 
-        val initialized = ready.await()
+        val initialized = withTimeoutOrNull(CONNECTION_TIMEOUT_MS) { ready.await() }
+        if (initialized == null) {
+            connectionFailure = "Pleos 내비 서비스가 15초 안에 연결 응답을 보내지 않았습니다. 내비 연결 상태를 확인해 주세요."
+            withContext(Dispatchers.Main.immediate) { helper.release() }
+            return null
+        }
         if (initialized.isSuccess) {
             connection = Connection(helper, listener)
             connectionFailure = null

@@ -4,10 +4,10 @@
 
 | 앱 변형 | APK | 크기 | SHA-256 |
 |---|---|---:|---|
-| Mock · x86_64 | [다운로드](MOAGIL-mock-debug-x86_64.apk) | 62,453,892 bytes | `A947C1E07D59E4DD140710C23A7A62E25BB16AB69016CBF2B98C60B56F3B0306` |
-| Mock · arm64-v8a | [다운로드](MOAGIL-mock-debug-arm64-v8a.apk) | 61,078,735 bytes | `8B67D98B0B55C60EFD36EB7A208926E0263108C1C7AA497BE34E114FCF141E0C` |
-| Pleos NaviHelper · x86_64 | [다운로드](MOAGIL-pleos-debug-x86_64.apk) | 64,562,660 bytes | `AF597B5F8BAB4EBC5AC1AB04409A9989DE5F5D79A0620BBD2F0800723CC44B65` |
-| Pleos NaviHelper · arm64-v8a | [다운로드](MOAGIL-pleos-debug-arm64-v8a.apk) | 63,187,503 bytes | `67DB4582860D52680148353A83E7E3C0F06E21030196DA8C4082CE118A2D5C4F` |
+| Mock · x86_64 | [다운로드](MOAGIL-mock-debug-x86_64.apk) | 27,251,321 bytes | `F3A8B097C1ECA984B09C0B44F324ED863E7EDD9BCFBA3C4EF3C432017E9E5274` |
+| Mock · arm64-v8a | [다운로드](MOAGIL-mock-debug-arm64-v8a.apk) | 27,251,321 bytes | `F3A8B097C1ECA984B09C0B44F324ED863E7EDD9BCFBA3C4EF3C432017E9E5274` |
+| Pleos NaviHelper · x86_64 | [다운로드](MOAGIL-pleos-debug-x86_64.apk) | 31,491,583 bytes | `F4770C18590AFA1A08706337F54FC3374B2AED8D5F5F7C2D87971E8C58BA9FCA` |
+| Pleos NaviHelper · arm64-v8a | [다운로드](MOAGIL-pleos-debug-arm64-v8a.apk) | 31,491,583 bytes | `F4770C18590AFA1A08706337F54FC3374B2AED8D5F5F7C2D87971E8C58BA9FCA` |
 
 Mock과 Pleos는 별도 앱으로 설치되므로 둘 다 설치하면 아이콘도 두 개 표시됩니다. Pleos 에뮬레이터 테스트에는 Pleos x86_64 APK 하나만 설치하세요. 런처 이름은 **모아길 Mock**, **모아길 Pleos**로 구분됩니다.
 

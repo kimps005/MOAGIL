@@ -43,10 +43,10 @@ button:active:not(:disabled) { transform: scale(.985); }
 .topbar { min-height: 74px; border-bottom-color: var(--line); }
 .brand { gap: 11px; }
 .brand-mark {
-  width: 40px; height: 40px; border-radius: 14px;
-  color: #fff; background: linear-gradient(145deg, #8393f7, #5368dc);
-  box-shadow: 0 7px 18px rgba(78, 97, 209, .2), inset 0 1px 0 rgba(255,255,255,.54);
+  width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%;
+  overflow: hidden; background: transparent; box-shadow: none;
 }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-name { color: #252a3d; letter-spacing: .01em; }
 .brand-sub { color: #777f91; }
 .status-pill, .mock-pill, .park-pill {
@@ -144,7 +144,7 @@ body.passenger-body {
 }
 .passenger-shell { width: min(540px, 100%); padding: 0 22px calc(110px + env(safe-area-inset-bottom)); background: transparent; box-shadow: none; }
 .passenger-top { height: 66px; border-bottom-color: rgba(110,122,158,.13); }
-.passenger-top .brand-mark { width: 34px; height: 34px; border-radius: 12px; }
+.passenger-top .brand-mark { width: 34px; height: 34px; border-radius: 50%; }
 .passenger-top .brand-name { color: #252b3e; font-size: 15px; letter-spacing: .04em; }
 .passenger-heading { padding: 26px 3px 12px; }
 .passenger-heading h1 { margin: 0; color: #202538; font-size: clamp(28px, 6vw, 34px); line-height: 1.16; letter-spacing: -.045em; }
@@ -216,7 +216,7 @@ body:not(.passenger-body) .qr-card-large { width: min(360px, 76vw); margin: 24px
 .live-shell .brand-name { line-height: 1.05; }
 .live-shell .brand-sub { display: block; margin-top: 0; line-height: 1.15; }
 .live-shell .nav-right { gap: 9px; }
-.route-workspace { grid-template-columns: minmax(0,1.5fr) minmax(360px,.86fr); gap: 16px; }
+.route-workspace { grid-template-columns: minmax(0,1.8fr) minmax(320px,.9fr); gap: 16px; }
 .live-shell .map-card { border-radius: 22px; }
 .session-panel { gap: 16px; padding: 18px; border-radius: 22px; }
 .panel-heading { margin-bottom: 12px; }

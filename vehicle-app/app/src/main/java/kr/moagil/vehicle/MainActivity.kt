@@ -8,6 +8,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,7 +69,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
@@ -113,12 +121,17 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.rgb(244, 245, 249)
         window.navigationBarColor = android.graphics.Color.rgb(244, 245, 249)
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        val previewQrPreparation = BuildConfig.DEBUG && intent.getBooleanExtra("codex_preview_qr_preparation", false)
         setContent {
             MaterialTheme(colorScheme = Scheme) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    val model: MoagilViewModel = viewModel()
-                    val state by model.state.collectAsState()
-                    DriverScreen(state, model)
+                    if (previewQrPreparation) {
+                        QrFirstScreen(DriverUiState()) {}
+                    } else {
+                        val model: MoagilViewModel = viewModel()
+                        val state by model.state.collectAsState()
+                        DriverScreen(state, model)
+                    }
                 }
             }
         }
@@ -187,7 +200,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     }
 
     if (state.session == null) {
-        QrFirstScreen(state, model)
+        QrFirstScreen(state) { model.createSession(false) }
     } else {
         Column(Modifier.fillMaxSize().background(Ink)) {
             Header(state, onNewSession = { showNewSession = true })
@@ -199,49 +212,99 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
 }
 
 @Composable
-private fun QrFirstScreen(state: DriverUiState, model: MoagilViewModel) {
-    val session = state.session
-    val credentials = state.credentials
-    val inviteUrl = remember(session?.sessionId, credentials?.joinBaseUrl, credentials?.inviteToken) {
-        if (session == null || credentials == null) "" else "${credentials.joinBaseUrl.trimEnd('/')}/join/${session.sessionId}?invite=${credentials.inviteToken}"
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
-        val qrSize = if (maxWidth > 900.dp) 440.dp else 280.dp
+private fun QrFirstScreen(state: DriverUiState, onRetry: () -> Unit) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(Color(0xFFF1F3FB)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val compact = maxHeight < 620.dp
+        val logoSize = (maxHeight * 0.28f).coerceIn(132.dp, 190.dp)
+        AnimatedMoagilLogo(
+            Modifier.align(Alignment.Center).size(logoSize),
+        )
         Column(
-            Modifier.fillMaxWidth().padding(24.dp),
+            Modifier.align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(top = maxHeight / 2 + logoSize / 2 + if (compact) 16.dp else 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("MOAGIL", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-            if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                Text(
-                    "Pleos 내비를 기본 화면에 둔 뒤, 동승자 창의 앱 라이브러리에서 모아길을 실행하세요. 자주 쓰면 동승자 GNB 즐겨찾기에 추가할 수 있습니다.",
-                    color = Muted,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.widthIn(max = 680.dp),
-                )
-            }
-            if (inviteUrl.isNotBlank()) {
-                val qr = remember(inviteUrl) { renderQr(inviteUrl) }
-                if (qr != null) {
-                    Image(
-                        qr.asImageBitmap(),
-                        contentDescription = "동승자 초대 QR 코드",
-                        modifier = Modifier.size(qrSize).background(Color.White, RoundedCornerShape(20.dp)).padding(14.dp),
-                    )
-                } else {
-                    Box(Modifier.size(qrSize), contentAlignment = Alignment.Center) { Text("QR을 만들 수 없습니다.", color = Alert) }
+            Text("모아길", color = Color(0xFF26345F), fontSize = if (compact) 36.sp else 44.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(if (compact) 24.dp else 36.dp))
+            Text("QR 준비 중", color = Color(0xFF515C79), fontSize = if (compact) 20.sp else 24.sp, fontWeight = FontWeight.SemiBold)
+            if (state.errorMessage != null) {
+                Spacer(Modifier.height(18.dp))
+                Text(state.errorMessage, color = Alert, fontSize = 16.sp, lineHeight = 23.sp)
+                if (!state.busy) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = onRetry,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
+                    ) {
+                        Text("다시 연결", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                Text("QR을 스캔해 내릴 곳을 등록하세요", color = Color(0xFF183B32), fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("등록 즉시 추천 순서를 계산합니다 · ${session?.passengers?.size ?: 0} / 4명", color = Muted, fontSize = 14.sp)
-            } else {
-                CircularProgressIndicator(color = Mint, modifier = Modifier.padding(20.dp))
-                Text(if (state.busy) "초대 QR을 준비하고 있어요" else "서버 연결을 확인하고 있어요", color = Color(0xFF183B32), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                state.errorMessage?.let { Text(it, color = Alert, fontSize = 13.sp) }
-                if (!state.busy) Button(onClick = { model.createSession(false) }) { Text("다시 연결") }
             }
         }
+    }
+}
+
+@Composable
+private fun AnimatedMoagilLogo(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "moagil-logo")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 2_200, easing = LinearEasing)),
+        label = "logo-path-progress",
+    )
+    val (x, y) = moagilLogoPosition(progress)
+
+    BoxWithConstraints(
+        modifier.clip(CircleShape).background(Color.White),
+        contentAlignment = Alignment.Center,
+    ) {
+        val artworkOffsetX = maxWidth * 0.024f
+        val artworkOffsetY = -(maxHeight * 0.008f)
+        Image(
+            painter = painterResource(R.drawable.moagil_logo),
+            contentDescription = "모아길 로고",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().offset(x = artworkOffsetX, y = artworkOffsetY),
+        )
+        val dotSize = maxWidth * 0.11f
+        Box(
+            Modifier.align(Alignment.TopStart)
+                .offset(
+                    x = maxWidth * x + artworkOffsetX - dotSize / 2,
+                    y = maxHeight * y + artworkOffsetY - dotSize / 2,
+                )
+                .size(dotSize)
+                .background(Color(0xFF536DE6), CircleShape)
+                .border(maxWidth * 0.008f, Color.White, CircleShape),
+        )
+    }
+}
+
+private fun moagilLogoPosition(progress: Float): Pair<Float, Float> {
+    val scaled = progress.coerceIn(0f, 1f) * 4f
+    val segment = scaled.toInt().coerceAtMost(3)
+    val t = (scaled - segment).coerceIn(0f, 1f)
+
+    fun cubic(p0: Float, p1: Float, p2: Float, p3: Float): Float {
+        val inverse = 1f - t
+        return inverse * inverse * inverse * p0 +
+            3f * inverse * inverse * t * p1 +
+            3f * inverse * t * t * p2 +
+            t * t * t * p3
+    }
+
+    return when (segment) {
+        0 -> cubic(.147f, .18f, .23f, .293f) to cubic(.663f, .60f, .39f, .384f)
+        1 -> cubic(.293f, .35f, .40f, .449f) to cubic(.384f, .384f, .50f, .509f)
+        2 -> cubic(.449f, .51f, .56f, .61f) to cubic(.509f, .52f, .384f, .384f)
+        else -> cubic(.61f, .68f, .73f, .795f) to cubic(.384f, .38f, .61f, .629f)
     }
 }
 
@@ -253,9 +316,11 @@ private fun Header(state: DriverUiState, onNewSession: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).background(Brush.linearGradient(listOf(Color(0xFF8192F1), Mint)), CircleShape), contentAlignment = Alignment.Center) {
-                Text("길", color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
-            }
+            Image(
+                painter = painterResource(R.drawable.moagil_logo),
+                contentDescription = null,
+                modifier = Modifier.size(40.dp).clip(CircleShape),
+            )
             Spacer(Modifier.width(11.dp))
             Text("모아길", fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = (-0.3).sp)
         }
@@ -424,7 +489,6 @@ private fun LiveStopsPanel(
     }
 
     val peopleById = session.passengers.associateBy(Passenger::id)
-    val registrationIndex = session.passengers.mapIndexed { index, person -> person.id to index }.toMap()
     val routeOrder = session.selectedOrder.ifEmpty { session.route?.order.orEmpty() }
     val orderedPeople = (routeOrder.mapNotNull(peopleById::get) + session.passengers.filter { it.id !in routeOrder })
     val route = session.route
@@ -435,45 +499,83 @@ private fun LiveStopsPanel(
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("${session.passengers.size}/4", color = Color(0xFF535E78), fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = .2.sp)
+                    Text("하차 순서", color = Color(0xFF252B3E), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("등록된 목적지 ${session.passengers.size}/4", color = Muted, fontSize = 15.sp)
                 }
                 Badge(
                     label = when {
-                        route != null -> "AI 최적 경로"
-                        state.autoPlanning -> "AI 계산 중"
-                        state.autoPlanError != null -> "AI 오류"
-                        else -> "AI 대기"
+                        route != null -> "자동 추천 완료"
+                        state.autoPlanning -> "순서 계산 중"
+                        state.autoPlanError != null -> "확인 필요"
+                        else -> "참가 대기"
                     },
-                    color = if (route != null || state.autoPlanning) Mint else Muted,
+                    color = when {
+                        route != null || state.autoPlanning -> Mint
+                        state.autoPlanError != null -> Alert
+                        else -> Muted
+                    },
                 )
             }
 
             route?.let {
                 val minutes = (it.durationMs + 30_000) / 60_000
-                val kilometers = it.distanceM?.let { meters -> String.format(Locale.US, "%.1fkm", meters / 1000.0) }.orEmpty()
-                Row(
-                    Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(14.dp)).padding(horizontal = 13.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("${minutes}분", color = Color(0xFF36457F), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Box(Modifier.size(4.dp).background(Color(0xFF8995D7), CircleShape))
-                    Text(kilometers, color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                val durationLabel = when {
+                    minutes < 60L -> "${minutes}분"
+                    minutes % 60L == 0L -> "${minutes / 60L}시간"
+                    else -> "${minutes / 60L}시간 ${minutes % 60L}분"
                 }
+                val kilometers = it.distanceM?.let { meters -> String.format(Locale.US, "%.1f km", meters / 1000.0) } ?: "—"
+                Row(
+                    Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 14.sp)
+                        Text(durationLabel, color = Color(0xFF36457F), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(Modifier.width(1.dp).height(40.dp).background(Color(0xFFD8DDF5)))
+                    Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("총 이동 거리", color = Color(0xFF616B85), fontSize = 14.sp)
+                        Text(kilometers, color = Color(0xFF36457F), fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } ?: if (state.autoPlanning || state.autoPlanError != null || session.passengers.isNotEmpty()) {
+                Text(
+                    when {
+                        state.autoPlanning -> "등록된 목적지를 확인하고 있어요."
+                        state.autoPlanError != null -> state.autoPlanError
+                        else -> "목적지가 등록되면 가장 효율적인 순서를 추천합니다."
+                    },
+                    color = if (state.autoPlanError != null) Alert else Muted,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                )
+            } else {
+                Unit
+            }
+
+            if (orderedPeople.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
+                Text("핀을 누르면 해당 장소를 첫 하차로 고정합니다.", color = Muted, fontSize = 14.sp)
             }
 
             LazyColumn(
                 Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
+                if (orderedPeople.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(16.dp)).padding(18.dp)) {
+                            Text("아직 등록된 위치가 없습니다", color = Color(0xFF535E78), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
                 items(orderedPeople, key = { it.id }) { passenger ->
-                    val friendIndex = registrationIndex[passenger.id] ?: 0
                     FriendStopRow(
                         passenger = passenger,
-                        friendLabel = friendLabel(friendIndex),
+                        stopNumber = orderedPeople.indexOf(passenger) + 1,
                         priority = session.priorityPassengerId == passenger.id,
                         canPin = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
                         onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
@@ -491,17 +593,17 @@ private fun LiveStopsPanel(
                 Button(
                     onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
                     enabled = state.canOperate && !state.busy,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
                 ) {
-                    Text("안내 시작", fontWeight = FontWeight.Bold)
+                    Text(if (state.canOperate) "이 순서로 안내 시작" else "정차 확인 후 안내 시작", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("정차", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("차량 정차 상태", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
                 if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                    Text(if (state.canOperate) state.vehicleContext.message else "차량 상태 확인 필요", color = if (state.canOperate) Success else Muted, fontSize = 12.sp)
+                    Text(if (state.canOperate) state.vehicleContext.message else "차량 상태 확인 필요", color = if (state.canOperate) Success else Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 } else {
                     Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() }, enabled = !state.busy)
                 }
@@ -513,7 +615,7 @@ private fun LiveStopsPanel(
 @Composable
 private fun FriendStopRow(
     passenger: Passenger,
-    friendLabel: String,
+    stopNumber: Int,
     priority: Boolean,
     canPin: Boolean,
     onPin: () -> Unit,
@@ -521,19 +623,29 @@ private fun FriendStopRow(
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(17.dp))
-            .background(if (priority) AccentSoft else Color(0xFFF7F8FC))
+            .background(if (priority) AccentSoft else PanelRaised)
             .border(1.dp, if (priority) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val emoji = passengerEmoji(passenger.displayName)
         Box(Modifier.size(48.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
-            Text(emoji ?: friendLabel.takeLast(1), color = if (emoji != null || priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = if (emoji != null) 25.sp else 20.sp)
+            Text("$stopNumber", color = if (priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = 22.sp)
         }
         Column(Modifier.weight(1f)) {
-            Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(passenger.point.label, color = Muted, fontSize = 16.sp, lineHeight = 21.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (priority) {
+                    Text(
+                        "먼저 하차",
+                        color = Color(0xFF36457F),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.background(Color.White, RoundedCornerShape(20.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            Text(passenger.point.label, color = Color(0xFF626B7E), fontSize = 19.sp, lineHeight = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         IconButton(
             onClick = onPin,
@@ -552,24 +664,29 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
         if (joinBaseUrl.isBlank() || inviteToken.isBlank()) "" else "${joinBaseUrl.trimEnd('/')}/join/${session.sessionId}?invite=$inviteToken"
     }
     val image = remember(url) { url.takeIf(String::isNotBlank)?.let(::renderQr) }
-    Box(
-        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(18.dp)).padding(10.dp),
-        contentAlignment = Alignment.Center,
+    Column(
+        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("동승자 초대", color = Color(0xFF252B3E), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("QR을 스캔해 하차 위치를 등록하세요", color = Muted, fontSize = 14.sp)
+        }
         if (image != null) {
             Image(
                 image.asImageBitmap(),
                 contentDescription = "친구 초대 QR",
-                modifier = Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
-                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(10.dp),
+                modifier = Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(9.dp),
             )
         } else {
-            Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)))
+            Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Text("QR 준비 중", color = Muted, fontSize = 15.sp)
+            }
         }
     }
 }
-
-private fun friendLabel(index: Int): String = "친구 ${(index.coerceIn(0, 25) + 'A'.code).toChar()}"
 
 private val passengerAvatarEmojis = setOf(
     "🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐",
@@ -743,8 +860,8 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold)
-                        Text(passenger.point.label, color = Muted, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                        Text(passenger.point.label, color = Muted, fontSize = 17.sp, lineHeight = 23.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (canRemove) TextButton(onClick = { onDelete(passenger) }, enabled = !state.busy) { Text("삭제", color = Alert) }
                 }
@@ -832,8 +949,8 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                 Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${index + 1}", color = Mint, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold)
-                        Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 12.sp)
+                        Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                        Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     val fixed = session.priorityPassengerId == id
                     if (fixed) Text("우선 고정", color = Mint, fontSize = 11.sp)
@@ -879,6 +996,8 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
             Text(
                 (passenger?.point ?: session.finalPoint)?.let { "${it.label} · ${it.lat}, ${it.lon}" } ?: "정차 확인 후 이동을 마무리할 수 있습니다.",
                 color = Muted,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
             )
             if (!state.navigationConfirmed) {
                 Button(onClick = { model.retryNavigation() }, enabled = state.canOperate && !state.busy, modifier = Modifier.fillMaxWidth()) { Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "Pleos 내비 경로 다시 요청" else "모의 안내 다시 요청") }
@@ -906,10 +1025,10 @@ private fun SectionTitle(title: String, subtitle: String) {
 
 @Composable
 private fun Badge(label: String, color: Color) {
-    Row(Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(40.dp)).padding(horizontal = 13.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.background(color.copy(alpha = .12f), RoundedCornerShape(40.dp)).padding(horizontal = 13.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).background(color, CircleShape))
         Spacer(Modifier.width(8.dp))
-        Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
