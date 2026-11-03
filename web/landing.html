@@ -3,67 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="description" content="모아길은 함께 이동하는 사람들의 목적지를 모아 편한 하차 순서를 추천합니다.">
+  <meta name="theme-color" content="#f7f8fb">
+  <meta name="description" content="모아길은 동승자의 목적지를 모아 도로 경로를 비교하고, 편리한 하차 순서를 추천하는 공동 이동 서비스입니다.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="모아길 | 함께 가는 길을 더 편하게">
+  <meta property="og:description" content="여러 목적지를 모아 도로를 비교하고, 편리한 하차 순서를 추천합니다.">
+  <meta property="og:image" content="https://moagil-eta.vercel.app/moagil-logo.png">
   <title>모아길 | 함께 가는 길을 더 편하게</title>
   <link rel="icon" href="/moagil-logo.png?v=20261103" type="image/png">
   <link rel="apple-touch-icon" href="/moagil-logo.png?v=20261103">
   <link rel="stylesheet" href="/landing.css">
 </head>
 <body>
-  <header class="site-header">
-    <a class="wordmark" href="/" aria-label="모아길 홈"><span class="mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt="" width="64" height="64"></span><span>모아길</span></a>
-    <a class="header-link" href="/app">서비스 열기 <span aria-hidden="true">↗</span></a>
+  <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
+  <header class="site-header page-shell">
+    <a class="wordmark" href="/" aria-label="모아길 홈">
+      <span class="logo-frame"><img src="/moagil-logo.png?v=20261103" alt="" width="42" height="42"></span>
+      <span class="wordmark-copy"><strong>모아길</strong><small>MOAGIL</small></span>
+    </a>
+    <a class="header-link" href="/app">서비스 시작하기 <span aria-hidden="true">↗</span></a>
   </header>
-  <main>
-    <section class="hero">
+
+  <main id="main-content" class="page-shell">
+    <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <div class="brand-intro" aria-label="모아길, 함께 이동하는 사람들을 위한 길 안내">
-          <span class="hero-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt="" width="72" height="72"></span>
-          <span class="brand-copy"><strong>MOAGIL</strong><small>함께 이동하는 사람들을 위한 길 안내</small></span>
-        </div>
-        <h1>여러 사람의 목적지를<br><em>하나의 편한 길로</em></h1>
-        <p class="lead">각자 내릴 곳을 등록하면, 모아길이 도로 경로를 비교해 하차 순서를 추천합니다. 이동을 만들고 QR 하나를 공유해 보세요.</p>
+        <p class="eyebrow"><span aria-hidden="true"></span>함께 이동하는 사람들을 위한 서비스</p>
+        <h1 id="hero-title">여러 목적지를 모아,<br><span>더 편한 하차 순서로.</span></h1>
+        <p class="hero-description">동승자가 QR로 목적지를 등록하면, 모아길이 도로 경로를 비교해 하차 순서를 추천합니다.</p>
         <div class="hero-actions">
-          <a class="button-primary" href="/app">모아길 시작하기 <span aria-hidden="true">→</span></a>
-          <a class="button-text" href="#how">이용 방법 보기</a>
+          <a class="button-primary" href="/app">서비스 시작하기 <span aria-hidden="true">→</span></a>
+          <a class="button-secondary" href="#how">이용 방법 <span aria-hidden="true">↓</span></a>
         </div>
-        <div class="trust-row"><span><i>✓</i> QR로 간편 참여</span><span><i>✓</i> 최대 4명 목적지 모으기</span><span><i>✓</i> 카카오 길찾기 기반</span></div>
       </div>
-      <div class="route-visual" aria-label="여러 목적지를 모아 길을 정리하는 모아길 예시">
-        <div class="visual-top"><span class="visual-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt="" width="40" height="40"></span><span>함께 가는 길</span><span class="visual-count">3곳 모음</span></div>
-        <div class="map-art">
-          <svg viewBox="0 0 540 390" role="img" aria-label="출발지에서 세 목적지를 차례로 잇는 경로">
-            <path class="street" d="M-20 65 C72 48 87 110 168 100 S277 28 354 65 443 141 570 104"/>
-            <path class="street" d="M-20 167 C70 190 104 138 172 166 S283 247 358 205 469 170 565 219"/>
-            <path class="street" d="M-12 305 C62 257 105 299 175 285 S290 320 353 292 461 275 562 321"/>
-            <path class="street" d="M96 -10 C119 58 102 120 128 184 S184 286 151 406"/>
-            <path class="street" d="M260 -10 C232 61 273 118 255 174 S222 295 265 406"/>
-            <path class="street" d="M425 -10 C384 65 414 128 399 185 S424 297 391 406"/>
-            <path class="route-halo" d="M123 227 C167 218 194 182 237 177 S307 203 353 158 398 122 439 116"/>
-            <path class="route-line" d="M123 227 C167 218 194 182 237 177 S307 203 353 158 398 122 439 116"/>
-            <circle class="route-point" cx="237" cy="177" r="8"/><circle class="route-point" cx="353" cy="158" r="8"/><circle class="route-point" cx="439" cy="116" r="8"/>
-            <circle class="start-ring" cx="123" cy="227" r="18"/><circle class="start-point" cx="123" cy="227" r="7"/>
+
+      <div class="route-board" role="img" aria-label="출발지와 세 곳의 목적지를 잇는 모아길 경로 화면 예시">
+        <div class="board-header">
+          <span class="board-brand"><span class="board-logo"><img src="/moagil-logo.png?v=20261103" alt="" width="28" height="28"></span>모아길</span>
+          <span class="board-heading">추천 경로</span>
+          <span class="board-count">목적지 3곳</span>
+        </div>
+        <div class="map-stage" aria-hidden="true">
+          <svg class="map-drawing" viewBox="0 0 520 350" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="route-gradient" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0%" stop-color="#83a0ff"/>
+                <stop offset="100%" stop-color="#3156d7"/>
+              </linearGradient>
+            </defs>
+            <path class="street" d="M-25 58C42 80 70 39 136 57s92 69 152 42 108-50 162-23 48 37 94 28"/>
+            <path class="street" d="M-30 147c64 18 88-32 150-12s90 66 153 44 100-33 145-12 69 58 121 30"/>
+            <path class="street" d="M-25 269c74-38 115 23 174 0s80-66 145-41 103 48 146 24 70-52 118-34"/>
+            <path class="street street-cross" d="M83-22c23 61 47 101 30 157S76 252 112 375"/>
+            <path class="street street-cross" d="M245-20c-30 59-18 108 7 163s36 110 12 223"/>
+            <path class="street street-cross" d="M420-22c-42 77-27 118 5 175s18 110-15 223"/>
+            <path class="route-halo" d="M69 251c49-9 79-48 131-43s79 1 122-40 70-33 120-85"/>
+            <path class="route-line" d="M69 251c49-9 79-48 131-43s79 1 122-40 70-33 120-85"/>
           </svg>
-          <div class="map-label start-label"><b>출발</b><span>현재 위치</span></div>
-          <div class="map-label stop-one"><b>1</b><span>첫 번째 하차</span></div>
-          <div class="map-label stop-two"><b>2</b><span>두 번째 하차</span></div>
-          <div class="map-label stop-three"><b>3</b><span>마지막 하차</span></div>
-          <div class="route-card"><span>추천 순서</span><strong>가까운 곳부터 차례로</strong><small>등록된 위치를 모아 한 번에 확인</small></div>
+          <span class="map-pin map-pin-start"><i></i><span>출발지</span></span>
+          <span class="map-pin map-pin-one"><i>01</i><span>목적지</span></span>
+          <span class="map-pin map-pin-two"><i>02</i><span>목적지</span></span>
+          <span class="map-pin map-pin-three"><i>03</i><span>목적지</span></span>
         </div>
-        <div class="visual-bottom"><span>목적지를 함께 모으면</span><strong>이동 준비가 간단해져요</strong></div>
+        <div class="route-summary" aria-hidden="true">
+          <div class="summary-heading"><strong>추천 하차 순서</strong><span>도로 경로 기준</span></div>
+          <ol class="stop-list">
+            <li><span>01</span><strong>첫 번째 목적지</strong></li>
+            <li><span>02</span><strong>두 번째 목적지</strong></li>
+            <li><span>03</span><strong>마지막 목적지</strong></li>
+          </ol>
+        </div>
       </div>
     </section>
-    <section class="how" id="how">
-      <div class="section-heading"><p class="eyebrow">HOW IT WORKS</p><h2>이동 준비는 간단하게</h2><p>운전자는 이동을 만들고, 동승자는 자기 목적지만 등록하면 됩니다.</p></div>
-      <div class="steps">
-        <article class="step"><span class="step-number">01</span><div class="step-icon">↗</div><h3>이동 만들기</h3><p>서비스를 열고 새 이동을 시작하면 참여용 QR이 만들어집니다.</p></article>
-        <article class="step"><span class="step-number">02</span><div class="step-icon">⌖</div><h3>목적지 모으기</h3><p>동승자가 QR을 스캔해 이름과 내릴 곳을 등록합니다.</p></article>
-        <article class="step"><span class="step-number">03</span><div class="step-icon">⌁</div><h3>순서 확인하기</h3><p>모아길이 길을 비교해 추천 순서를 보여주고, 차량 화면에서 확인합니다.</p></article>
+
+    <section class="steps-section" id="how" aria-labelledby="steps-title">
+      <div class="section-heading">
+        <p class="section-label">간편한 이용 방법</p>
+        <h2 id="steps-title">이동 준비는 세 단계로.</h2>
       </div>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-number">01</span>
+          <div><h3>이동을 만들고</h3><p>운전자가 이동을 시작하고 QR을 공유합니다.</p></div>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </li>
+        <li class="step">
+          <span class="step-number">02</span>
+          <div><h3>목적지를 모아</h3><p>동승자는 QR로 내릴 곳을 등록합니다.</p></div>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        </li>
+        <li class="step">
+          <span class="step-number">03</span>
+          <div><h3>순서를 확인합니다</h3><p>추천 하차 순서를 차량 화면에서 확인합니다.</p></div>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><path d="m8 4-2 2 2 2m8 2-2 2 2 2m-8 2-2 2 2 2"/></svg>
+        </li>
+      </ol>
     </section>
-    <section class="closing"><div><p class="eyebrow">MOAGIL</p><h2>다 같이 가는 길,<br>모아길에서 시작하세요.</h2></div><a class="button-primary" href="/app">서비스 열기 <span aria-hidden="true">→</span></a></section>
   </main>
-  <footer class="site-footer"><a class="wordmark" href="/" aria-label="모아길 홈"><span class="mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt="" width="48" height="48"></span><span>모아길</span></a><span>여러 사람의 목적지를 모아, 더 편한 이동을 준비합니다.</span><a href="/app">앱 열기</a></footer>
+
+  <footer class="site-footer page-shell">
+    <a class="wordmark footer-wordmark" href="/" aria-label="모아길 홈">
+      <span class="logo-frame"><img src="/moagil-logo.png?v=20261103" alt="" width="34" height="34"></span>
+      <span class="wordmark-copy"><strong>모아길</strong><small>MOAGIL</small></span>
+    </a>
+    <span class="footer-message">모두의 목적지를 모아, 더 편한 이동을.</span>
+    <a class="footer-link" href="/app">서비스 열기 <span aria-hidden="true">↗</span></a>
+  </footer>
 </body>
 </html>
