@@ -50,12 +50,14 @@ class MoagilApi(private val baseUrl: String) {
         finalPoint: Point?,
         priorityId: String?,
         startPoint: Point = session.startPoint,
+        routePreference: String = session.routePreference,
     ): DriverSession {
         val body = JSONObject().apply {
             put("expectedVersion", session.version)
             put("startPoint", JsonModels.pointJson(startPoint))
             put("finalPoint", finalPoint?.let(JsonModels::pointJson) ?: JSONObject.NULL)
             put("priorityPassengerId", priorityId ?: JSONObject.NULL)
+            put("routePreference", routePreference)
         }
         return mutation(credentials, "/api/sessions/${session.sessionId}/settings", body, "PUT")
     }

@@ -321,30 +321,23 @@ function passengerProgressMarkup() {
 
   const progress = state.passengerProgress;
   const person = progress.passenger;
-  const copy = {
-    COLLECTING: ['경로 계산 중', '운전자가 참가자 위치를 모으고 있어요.'],
-    READY: ['출발 대기', '추천 하차 순서가 정해졌어요.'],
-    CURRENT_STOP: ['내 목적지로 이동 중', '운전자가 현재 경로를 따라 이동하고 있어요.'],
-    UPCOMING: ['앞 순서 하차 진행 중', '내 차례가 되면 화면 상태가 바뀝니다.'],
-    DROPPED_OFF: ['하차 완료', '내 목적지에 도착했어요.'],
-    TRIP_COMPLETE: ['이동 종료', '이번 이동이 종료됐어요.'],
-    CANCELLED: ['이동 취소', '운전자가 이동을 종료했어요.'],
-    EXPIRED: ['세션 만료', '이 초대 세션은 만료됐어요.'],
-  }[progress.status] || ['이동 정보', '운전자 화면이 바뀌면 여기도 업데이트돼요.'];
   const routeTime = progress.sessionState === 'ACTIVE'
     ? progress.remainingDurationMs
     : progress.sessionState === 'PLANNED' ? progress.estimatedDurationMs : null;
   let routeTimeLabel = routeTime == null ? '계산 중' : formatDuration(routeTime);
   if (['DROPPED_OFF', 'TRIP_COMPLETE'].includes(progress.status)) routeTimeLabel = '완료';
   if (['CANCELLED', 'EXPIRED'].includes(progress.status)) routeTimeLabel = '—';
-  const routeTimeCaption = progress.sessionState === 'ACTIVE' ? '현재 순서 기준 예상' : progress.sessionState === 'PLANNED' ? '출발 후 예상' : '예상 시간';
-  const stopLabel = progress.stopNumber ? progress.stopNumber + '번째 / ' + progress.totalStops + '명' : '순서 계산 중';
+  let etaLabel = '계산 중';
+  if (routeTime != null && ['PLANNED', 'ACTIVE'].includes(progress.sessionState)) {
+    etaLabel = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' }).format(new Date(Date.now() + routeTime));
+  }
+  if (['DROPPED_OFF', 'TRIP_COMPLETE'].includes(progress.status)) etaLabel = '도착';
+  if (['CANCELLED', 'EXPIRED'].includes(progress.status)) etaLabel = '—';
+  const stopLabel = progress.stopNumber ? progress.stopNumber + '번째 하차' : '계산 중';
   const editButton = progress.canEdit ? '<button class="btn primary" data-action="edit-passenger">목적지 수정</button>' : '';
-  const etaNote = routeTime != null && ['PLANNED', 'ACTIVE'].includes(progress.sessionState)
-    ? '<p class="passenger-progress-note">' + (progress.routeNote ? esc(progress.routeNote) + '. ' : '') + (progress.estimatedTimeApproximate ? '구간별 시간은 경로 전체 시간과 거리 비율로 나눈 참고값입니다. ' : '') + '현재 차량 위치와 실제 교통에 따라 달라질 수 있어요.</p>' : '';
   const error = state.joinError ? '<p class="phone-error">' + esc(state.joinError) + '</p>' : '';
 
-  return '<main class="passenger-shell passenger-progress-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header><section class="passenger-heading"><div class="eyebrow">동승자 전용</div><h1>내 이동 정보</h1><p>운전자 화면이 바뀌면 여기도 자동으로 업데이트돼요.</p></section><section class="phone-card passenger-progress-card"><div class="passenger-progress-status"><span class="success-mark" aria-hidden="true"></span><div><h2>' + esc(copy[0]) + '</h2><p>' + esc(copy[1]) + '</p></div></div><div class="passenger-progress-identity"><strong>' + esc(passengerName(person.displayName)) + '</strong><span>' + esc(person.point?.label || '등록한 목적지') + '</span></div><div class="passenger-progress-metrics"><div class="passenger-progress-metric"><small>내 하차 순서</small><strong>' + esc(stopLabel) + '</strong></div><div class="passenger-progress-metric"><small>' + esc(routeTimeCaption) + '</small><strong>' + esc(routeTimeLabel) + '</strong></div></div>' + etaNote + error + '<div class="passenger-progress-actions">' + editButton + '<button class="btn" data-action="refresh-passenger">상태 새로고침</button></div></section></main>';
+  return '<main class="passenger-shell passenger-progress-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header><section class="passenger-progress-identity"><strong>' + esc(passengerName(person.displayName)) + '</strong><span>' + esc(person.point?.label || '등록한 목적지') + '</span></section><section class="phone-card passenger-progress-card"><div class="passenger-progress-metrics"><div class="passenger-progress-metric"><small>내 하차 순서</small><strong>' + esc(stopLabel) + '</strong></div><div class="passenger-progress-metric"><small>소요 시간</small><strong>' + esc(routeTimeLabel) + '</strong></div><div class="passenger-progress-metric"><small>도착 예상 시간</small><strong>' + esc(etaLabel) + '</strong></div></div>' + error + (editButton ? '<div class="passenger-progress-actions">' + editButton + '</div>' : '') + '</section></main>';
 }
 
 function joinMarkup() {

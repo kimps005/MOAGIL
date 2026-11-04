@@ -195,6 +195,15 @@ body.passenger-body {
 .passenger-progress-note { margin: -6px 0 0; color: #858da0; font-size: 10px; line-height: 1.5; }
 .passenger-progress-actions { display: flex; gap: 9px; }
 .passenger-progress-actions .btn { flex: 1; min-height: 44px; font-size: 12px; }
+.passenger-progress-shell .passenger-progress-identity { gap: 8px; margin: 22px 3px 12px; padding: 0; border: 0; }
+.passenger-progress-shell .passenger-progress-identity strong { color: #202a46; font-size: 27px; line-height: 1.2; letter-spacing: -.04em; }
+.passenger-progress-shell .passenger-progress-identity span { color: #58647e; font-size: 18px; line-height: 1.45; overflow-wrap: anywhere; }
+.passenger-progress-shell .passenger-progress-card { gap: 13px; margin-top: 0; padding: 16px; }
+.passenger-progress-shell .passenger-progress-metrics { grid-template-columns: 1fr; gap: 8px; }
+.passenger-progress-shell .passenger-progress-metric { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px 15px; }
+.passenger-progress-shell .passenger-progress-metric small { color: #68738b; font-size: 13px; }
+.passenger-progress-shell .passenger-progress-metric strong { color: #2d52ca; font-size: 19px; text-align: right; }
+.passenger-progress-shell .passenger-progress-actions .btn { min-height: 48px; font-size: 14px; }
 .passenger-cancel-edit { display: block; margin: 12px auto 0; }
 @media (max-width: 360px) { .passenger-progress-card { padding: 15px; } .passenger-progress-actions { flex-direction: column; } }
 
@@ -273,7 +282,8 @@ body.passenger-body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 .passenger-top { border-bottom-color: rgba(218,226,242,.82); }
-.passenger-top .brand-mark { width: 39px; height: 39px; border: 1px solid #fff; background: #fff; box-shadow: 0 4px 12px rgba(45,82,202,.09); }
+.passenger-top .brand-mark { width: 39px; height: 39px; display: grid; place-items: center; overflow: hidden; border: 1px solid #fff; background: #fff; box-shadow: 0 4px 12px rgba(45,82,202,.09); }
+.passenger-top .brand-mark img { object-fit: cover; object-position: center; transform: translate(1px, -1px); }
 .passenger-top .brand-name { color: var(--passenger-ink); font-size: 18px; font-weight: 850; letter-spacing: -.045em; }
 .passenger-heading h1 { color: #1e2944; letter-spacing: -.055em; }
 .passenger-heading p { color: var(--passenger-muted); font-size: 13px; line-height: 1.75; }

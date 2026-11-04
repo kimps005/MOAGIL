@@ -506,6 +506,7 @@ def _init_db() -> None:
             start_point TEXT NOT NULL,
             final_point TEXT,
             priority_id TEXT,
+            route_preference TEXT NOT NULL DEFAULT 'TIME',
             selected_order TEXT,
             active_index INTEGER NOT NULL DEFAULT 0,
             route_snapshot TEXT
@@ -522,6 +523,12 @@ def _init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS passengers_session_idx ON passengers(session_id, created_at);
         """)
+        if _database_url():
+            db.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS route_preference TEXT NOT NULL DEFAULT 'TIME'")
+        else:
+            columns = {column[1] for column in db.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "route_preference" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN route_preference TEXT NOT NULL DEFAULT 'TIME'")
         db.execute("DELETE FROM sessions WHERE expires_at < ?", ((datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(),))
     global _db_ready
     _db_ready = True
@@ -566,6 +573,7 @@ def _snapshot(db: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "startPoint": _json(row["start_point"]),
         "finalPoint": _json(row["final_point"]),
         "priorityPassengerId": row["priority_id"],
+        "routePreference": row["route_preference"],
         "passengers": [
             {"id": p["id"], "displayName": p["display_name"], "point": _json(p["point"]), "createdAt": p["created_at"]}
             for p in passengers
@@ -949,10 +957,39 @@ class Handler(BaseHTTPRequestHandler):
                 start = validate_point(body.get("startPoint"), "startPoint")
                 final = validate_point(body["finalPoint"], "finalPoint") if body.get("finalPoint") else None
                 priority = body.get("priorityPassengerId")
+                route_preference = body.get("routePreference", row["route_preference"] or "TIME")
+                if route_preference not in ("FREE", "TIME"):
+                    raise ApiError(422, "INVALID_ROUTE_PREFERENCE", "무료 도로 또는 최단 시간 중에서 선택해 주세요")
                 ids = {p["id"] for p in self._passengers(db, session_id)}
                 if priority and priority not in ids:
                     raise ApiError(422, "INVALID_PRIORITY", "먼저 내릴 동승자를 목록에서 선택해 주세요")
-                db.execute("UPDATE sessions SET state='COLLECTING',version=version+1,start_point=?,final_point=?,priority_id=?,selected_order=NULL,route_snapshot=NULL,active_index=0 WHERE id=?", (json.dumps(start, ensure_ascii=False), json.dumps(final, ensure_ascii=False) if final else None, priority, session_id))
+                current_route = _json(row["route_snapshot"], {}) or {}
+                current_order = _json(row["selected_order"], []) or current_route.get("order", [])
+                reuse_single_passenger_route = (
+                    len(ids) == 1
+                    and current_route
+                    and current_order == [next(iter(ids))]
+                    and current_route.get("order") == current_order
+                    and start == _json(row["start_point"])
+                    and final == _json(row["final_point"])
+                    and route_preference == (row["route_preference"] or "TIME")
+                )
+                next_version = row["version"] + 1
+                if reuse_single_passenger_route:
+                    current_route["basisVersion"] = next_version
+                db.execute(
+                    "UPDATE sessions SET state=?,version=version+1,start_point=?,final_point=?,priority_id=?,route_preference=?,selected_order=?,route_snapshot=?,active_index=0 WHERE id=?",
+                    (
+                        "PLANNED" if reuse_single_passenger_route else "COLLECTING",
+                        json.dumps(start, ensure_ascii=False),
+                        json.dumps(final, ensure_ascii=False) if final else None,
+                        priority,
+                        route_preference,
+                        json.dumps(current_order) if reuse_single_passenger_route else None,
+                        json.dumps(current_route, ensure_ascii=False) if reuse_single_passenger_route else None,
+                        session_id,
+                    ),
+                )
                 row = _session_row(db, session_id)
                 return self._send_json(200, _snapshot(db, row))
         except ApiError as error:
@@ -1036,6 +1073,7 @@ class Handler(BaseHTTPRequestHandler):
             passengers = self._passengers(db, session_id)
             final = _json(row["final_point"])
             priority_id = row["priority_id"]
+            route_preference = row["route_preference"] or "TIME"
             basis_version = row["version"]
 
         provider = routing_provider()
@@ -1046,7 +1084,7 @@ class Handler(BaseHTTPRequestHandler):
             if final:
                 matrix_points.append(final)
             if provider == "kakao":
-                evaluator = KakaoMatrixEvaluator(matrix_points)
+                evaluator = KakaoMatrixEvaluator(matrix_points, avoid_toll=route_preference == "FREE")
                 traffic_matrix = evaluator.snapshot()
             else:
                 evaluator = matrix_evaluator(matrix_points)
@@ -1074,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
                 matrix_fetched_at = chosen["fetchedAt"]
                 chosen = {
                     **chosen,
-                    **fetch_kakao_route(route_points),
+                    **fetch_kakao_route(route_points, avoid_toll=route_preference == "FREE"),
                     "optimizationDurationMs": matrix_duration_ms,
                     "optimizationFetchedAt": matrix_fetched_at,
                     "trafficMatrix": traffic_matrix,
@@ -1120,10 +1158,11 @@ class Handler(BaseHTTPRequestHandler):
             if final:
                 points.append(final)
             old = _json(row["route_snapshot"], {})
+            route_preference = row["route_preference"] or "TIME"
             basis_version = row["version"]
 
         provider = routing_provider()
-        estimate = fetch_kakao_route(points) if provider == "kakao" else fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
+        estimate = fetch_kakao_route(points, avoid_toll=route_preference == "FREE") if provider == "kakao" else fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
         note = KAKAO_NOTE if provider == "kakao" else NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
         provider_version = KAKAO_PROVIDER_VERSION if provider == "kakao" else NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
         snapshot = {

@@ -16,6 +16,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +33,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.draw.clip
@@ -68,7 +69,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -421,7 +424,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                     javascriptKey = state.kakaoMapJavascriptKey,
                     mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                     assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                    modifier = Modifier.weight(1.4f).fillMaxHeight(),
+                    modifier = Modifier.weight(1.8f).fillMaxHeight(),
                 )
                 if (terminal) {
                     SessionDetailsColumn(
@@ -446,7 +449,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                         javascriptKey = state.kakaoMapJavascriptKey,
                         mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                         assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                        modifier = Modifier.weight(1.5f).fillMaxHeight(),
+                        modifier = Modifier.weight(1.8f).fillMaxHeight(),
                     )
                     if (terminal) {
                         SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight())
@@ -505,7 +508,7 @@ private fun LiveStopsPanel(
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("하차 순서", color = Color(0xFF252B3E), fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -526,29 +529,33 @@ private fun LiveStopsPanel(
                 )
             }
 
-            route?.let {
+            val durationLabel = route?.let {
                 val minutes = (it.durationMs + 30_000) / 60_000
-                val durationLabel = when {
+                when {
                     minutes < 60L -> "${minutes}분"
                     minutes % 60L == 0L -> "${minutes / 60L}시간"
                     else -> "${minutes / 60L}시간 ${minutes % 60L}분"
                 }
-                val kilometers = it.distanceM?.let { meters -> String.format(Locale.US, "%.1f km", meters / 1000.0) } ?: "—"
-                Row(
-                    Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 14.sp)
-                        Text(durationLabel, color = Color(0xFF36457F), fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Box(Modifier.width(1.dp).height(40.dp).background(Color(0xFFD8DDF5)))
-                    Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("총 이동 거리", color = Color(0xFF616B85), fontSize = 14.sp)
-                        Text(kilometers, color = Color(0xFF36457F), fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    }
+            } ?: if (state.autoPlanning) "계산 중" else "—"
+            Row(
+                Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 13.sp)
+                    Text(durationLabel, color = Color(0xFF36457F), fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
-            } ?: if (state.autoPlanning || state.autoPlanError != null || session.passengers.isNotEmpty()) {
+                Box(Modifier.width(1.dp).height(40.dp).background(Color(0xFFD8DDF5)))
+                Column(Modifier.weight(1.15f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("도로 경로", color = Color(0xFF616B85), fontSize = 13.sp)
+                    RoutePreferenceToggle(
+                        selected = session.routePreference,
+                        enabled = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
+                        onSelect = model::setRoutePreference,
+                    )
+                }
+            }
+            if (route == null && (state.autoPlanning || state.autoPlanError != null || session.passengers.isNotEmpty())) {
                 Text(
                     when {
                         state.autoPlanning -> "등록된 목적지를 확인하고 있어요."
@@ -559,8 +566,6 @@ private fun LiveStopsPanel(
                     fontSize = 15.sp,
                     lineHeight = 21.sp,
                 )
-            } else {
-                Unit
             }
 
             if (orderedPeople.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
@@ -568,7 +573,7 @@ private fun LiveStopsPanel(
             }
 
             LazyColumn(
-                Modifier.widthIn(max = 480.dp).fillMaxWidth().weight(1f).align(Alignment.CenterHorizontally),
+                Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 if (orderedPeople.isEmpty()) {
@@ -634,9 +639,9 @@ private fun FriendStopRow(
             .clip(RoundedCornerShape(17.dp))
             .background(if (priority) AccentSoft else PanelRaised)
             .border(1.dp, if (priority) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Box(
             Modifier.size(48.dp)
@@ -664,10 +669,63 @@ private fun FriendStopRow(
         IconButton(
             onClick = onPin,
             enabled = canPin,
-            modifier = Modifier.size(48.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(15.dp))
+            modifier = Modifier.size(44.dp).background(if (priority) Color(0x1A000000) else Color.Transparent, RoundedCornerShape(15.dp))
                 .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
         ) {
-            Box(Modifier.size(18.dp).background(passengerColor, CircleShape).border(2.dp, Color.White, CircleShape))
+            Canvas(Modifier.size(25.dp)) {
+                val w = size.width
+                val h = size.height
+                val pin = Path().apply {
+                    moveTo(w * .35f, h * .12f)
+                    lineTo(w * .65f, h * .12f)
+                    lineTo(w * .62f, h * .34f)
+                    lineTo(w * .62f, h * .43f)
+                    lineTo(w * .72f, h * .52f)
+                    lineTo(w * .82f, h * .62f)
+                    lineTo(w * .82f, h * .69f)
+                    lineTo(w * .56f, h * .69f)
+                    lineTo(w * .53f, h * .93f)
+                    lineTo(w * .47f, h * .93f)
+                    lineTo(w * .44f, h * .69f)
+                    lineTo(w * .18f, h * .69f)
+                    lineTo(w * .18f, h * .62f)
+                    lineTo(w * .28f, h * .52f)
+                    lineTo(w * .38f, h * .43f)
+                    lineTo(w * .38f, h * .34f)
+                    close()
+                }
+                val tint = if (priority) Color.Black else Color(0xFF778096)
+                if (priority) drawPath(pin, tint)
+                else drawPath(pin, tint, style = Stroke(width = 1.8.dp.toPx()))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoutePreferenceToggle(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFFDDE2F5), RoundedCornerShape(10.dp)).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        listOf("FREE" to "무료", "TIME" to "유료").forEach { (value, label) ->
+            val isSelected = selected == value
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
+                    .background(if (isSelected) Color(0xFF25283A) else Color.Transparent)
+                    .clickable(enabled = enabled && !isSelected) { onSelect(value) }
+                    .semantics { contentDescription = if (isSelected) "$label 경로, 선택됨" else "$label 경로 선택" }
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    color = if (isSelected) Color.White else Color(0xFF59627B),
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

@@ -357,12 +357,13 @@ def _kakao_point(point: dict) -> dict:
 class KakaoMatrixEvaluator:
     """Fetch a live Kakao time/distance matrix, then compare all stop orders locally."""
 
-    def __init__(self, points: list[dict]):
+    def __init__(self, points: list[dict], avoid_toll: bool = False):
         if len(points) < 2:
             raise RoutingError("실제 경로에는 출발지와 하차 지점이 필요합니다")
         if len(points) > 30:
             raise RoutingError("카카오내비 경로 비교에는 위치를 30개 이하로 지정해 주세요")
         self.points = points
+        self.avoid_toll = avoid_toll
         count = len(points)
         self.duration_ms: list[list[int | None]] = [[None] * count for _ in range(count)]
         self.distance_m: list[list[int | None]] = [[None] * count for _ in range(count)]
@@ -385,12 +386,15 @@ class KakaoMatrixEvaluator:
                 origins.append({**_kakao_point(origin), "key": str(origin_index)})
             if not origins:
                 continue
-            payload = _kakao_request_json(KAKAO_ORIGINS_DIRECTIONS_URL, {
+            request_body = {
                 "origins": origins,
                 "destination": _kakao_point(destination),
                 "radius": 10000,
                 "priority": "TIME",
-            })
+            }
+            if avoid_toll:
+                request_body["avoid"] = ["toll"]
+            payload = _kakao_request_json(KAKAO_ORIGINS_DIRECTIONS_URL, request_body)
             routes = payload.get("routes")
             if not isinstance(routes, list):
                 raise RoutingError("카카오내비가 이동시간표를 반환하지 않았습니다")
@@ -417,7 +421,10 @@ class KakaoMatrixEvaluator:
             for destination_index in range(count):
                 if origin_index == destination_index or self.duration_ms[origin_index][destination_index] is not None:
                     continue
-                route = fetch_kakao_route([points[origin_index], points[destination_index]])
+                route = fetch_kakao_route(
+                    [points[origin_index], points[destination_index]],
+                    avoid_toll=self.avoid_toll,
+                )
                 self.duration_ms[origin_index][destination_index] = route["durationMs"]
                 self.distance_m[origin_index][destination_index] = route["distanceM"]
         self.fetched_at = utc_now()
@@ -471,13 +478,13 @@ class KakaoMatrixEvaluator:
         }
 
 
-def fetch_kakao_route(points: list[dict]) -> dict:
+def fetch_kakao_route(points: list[dict], avoid_toll: bool = False) -> dict:
     """Fetch a full Kakao route with real-time traffic and road geometry."""
     if len(points) < 2:
         raise RoutingError("실제 경로에는 출발지와 하차 지점이 필요합니다")
     if len(points) > 32:
         raise RoutingError("카카오내비 경로 요청은 경유지 30개 이하로 지정해 주세요")
-    payload = _kakao_request_json(KAKAO_WAYPOINTS_DIRECTIONS_URL, {
+    request_body = {
         "origin": _kakao_point(points[0]),
         "destination": _kakao_point(points[-1]),
         "waypoints": [_kakao_point(point) for point in points[1:-1]],
@@ -487,7 +494,10 @@ def fetch_kakao_route(points: list[dict]) -> dict:
         "alternatives": False,
         "road_details": False,
         "summary": False,
-    })
+    }
+    if avoid_toll:
+        request_body["avoid"] = "toll"
+    payload = _kakao_request_json(KAKAO_WAYPOINTS_DIRECTIONS_URL, request_body)
     routes = payload.get("routes")
     if not isinstance(routes, list) or not routes or not isinstance(routes[0], dict):
         raise RoutingError("카카오내비가 선택한 순서의 실제 경로를 찾지 못했습니다")

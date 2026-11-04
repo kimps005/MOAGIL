@@ -189,16 +189,38 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     fun setPriority(passengerId: String?) = driverAction {
         val session = requireSession()
         check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 우선 하차 위치를 지정할 수 있습니다." }
+        autoPlanJob?.cancel()
+        autoPlanAttemptKey = null
+        val reusableSingleStopRoute = session.passengers.size == 1 && session.route != null
         val final = finalPointOrNull()
-        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(requireCredentials(), session, final, passengerId)
-        acceptSession(updated, "우선 하차 설정을 저장했습니다. 경로를 다시 계산해 주세요.")
+        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
+            requireCredentials(), session, final, passengerId, routePreference = session.routePreference,
+        )
+        val reused = reusableSingleStopRoute && updated.route != null
+        acceptSession(updated, if (reused) "우선 하차 설정을 저장했습니다." else "우선 하차 설정을 저장하고 경로를 다시 계산합니다.")
+    }
+
+    fun setRoutePreference(preference: String) = driverAction {
+        check(preference in setOf("FREE", "TIME")) { "무료 도로 또는 최단 시간 중에서 선택해 주세요." }
+        val session = requireSession()
+        check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 도로 경로를 바꿀 수 있습니다." }
+        if (session.routePreference == preference) return@driverAction
+        autoPlanJob?.cancel()
+        autoPlanAttemptKey = null
+        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
+            requireCredentials(), session, session.finalPoint, session.priorityPassengerId,
+            routePreference = preference,
+        )
+        acceptSession(updated, if (preference == "FREE") "무료 도로로 경로를 다시 계산합니다." else "최단 시간으로 경로를 다시 계산합니다.")
     }
 
     fun setFinalDestination(enabled: Boolean) = driverAction {
         ensureParked()
         val session = requireSession()
         val final = if (enabled) finalPointOrNull(required = true) else null
-        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(requireCredentials(), session, final, _state.value.priorityId)
+        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
+            requireCredentials(), session, final, _state.value.priorityId, routePreference = session.routePreference,
+        )
         _state.value = _state.value.copy(finalEnabled = enabled)
         acceptSession(updated, "운전자 최종 목적지를 저장했습니다. 경로를 다시 계산해 주세요.")
     }
@@ -517,6 +539,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             finalPoint = session.finalPoint,
             priorityId = session.priorityPassengerId,
             startPoint = point,
+            routePreference = session.routePreference,
         )
         acceptSession(updated, null)
         return updated
