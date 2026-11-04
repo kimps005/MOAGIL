@@ -345,7 +345,8 @@ function joinMarkup() {
   if (state.joined && !state.editingPassenger) return passengerProgressMarkup();
   const error = state.joinError || '';
   const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header>'
-    + '<section class="passenger-heading"><h1>' + (state.editingPassenger ? '내 목적지 수정' : '목적지 입력') + '</h1><p>' + (state.editingPassenger ? '이동이 시작되기 전까지 수정할 수 있어요.' : '이름과 내릴 곳을 등록해 주세요.') + '</p></section>';
+    + '<section class="passenger-heading"><h1>' + (state.editingPassenger ? '내 목적지 수정' : '목적지 입력') + '</h1>'
+    + (state.editingPassenger ? '<p>이동이 시작되기 전까지 수정할 수 있어요.</p>' : '') + '</section>';
   if (!state.joinInfo && !state.passengerProgress) return heading + '<div class="loading-card">초대 확인 중…</div></main>';
   const searchResults = state.searchResults.map((feature, index) => {
   const place = placeParts(feature);

@@ -424,17 +424,17 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                     javascriptKey = state.kakaoMapJavascriptKey,
                     mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                     assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                    modifier = Modifier.weight(1.8f).fillMaxHeight(),
+                    modifier = Modifier.weight(2.2f).fillMaxHeight(),
                 )
                 if (terminal) {
                     SessionDetailsColumn(
                         session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(),
-                        onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight(),
+                        onDelete, onFinish, true, Modifier.weight(0.8f).fillMaxHeight(),
                     )
                 } else {
                     LiveStopsPanel(
                         session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(),
-                        onFinish, Modifier.weight(1f).fillMaxHeight(),
+                        onFinish, Modifier.weight(0.8f).fillMaxHeight(),
                     )
                 }
             }
@@ -449,12 +449,12 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                         javascriptKey = state.kakaoMapJavascriptKey,
                         mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                         assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                        modifier = Modifier.weight(1.8f).fillMaxHeight(),
+                        modifier = Modifier.weight(2.2f).fillMaxHeight(),
                     )
                     if (terminal) {
-                        SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(1f).fillMaxHeight())
+                        SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(0.8f).fillMaxHeight())
                     } else {
-                        LiveStopsPanel(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onFinish, Modifier.weight(1f).fillMaxHeight())
+                        LiveStopsPanel(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onFinish, Modifier.weight(0.8f).fillMaxHeight())
                     }
                 }
             } else {
@@ -510,23 +510,8 @@ private fun LiveStopsPanel(
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("하차 순서", color = Color(0xFF252B3E), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("등록된 목적지 ${session.passengers.size}/4", color = Muted, fontSize = 15.sp)
-                }
-                Badge(
-                    label = when {
-                        route != null -> "자동 추천 완료"
-                        state.autoPlanning -> "순서 계산 중"
-                        state.autoPlanError != null -> "확인 필요"
-                        else -> "참가 대기"
-                    },
-                    color = when {
-                        route != null || state.autoPlanning -> Mint
-                        state.autoPlanError != null -> Alert
-                        else -> Muted
-                    },
-                )
+                Text("하차 순서", color = Color(0xFF252B3E), fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${session.passengers.size} / 4", color = Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
             val durationLabel = route?.let {

@@ -436,7 +436,7 @@ body.passenger-body {
   outline: none;
   color: #202636;
   background: rgba(255,255,255,.76);
-  font-size: 15px;
+  font-size: 16px;
   box-shadow: inset 0 1px 2px rgba(45,55,85,.025);
 }
 #display-name::placeholder, .map-search input::placeholder { color: #9299a8; }
@@ -462,7 +462,7 @@ body.passenger-body {
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 .map-search svg { width: 19px; height: 19px; flex: 0 0 19px; fill: none; stroke: #727b8e; stroke-width: 1.8; stroke-linecap: round; }
-.map-search input { flex: 1; min-width: 0; height: 38px; padding: 0; border: 0; outline: none; color: #222a3b; background: transparent; font-size: 14px; }
+.map-search input { flex: 1; min-width: 0; height: 38px; padding: 0; border: 0; outline: none; color: #222a3b; background: transparent; font-size: 16px; }
 .search-place-button { flex: 0 0 auto; min-height: 40px; padding: 0 14px; border: 0; border-radius: 12px; color: #fff; background: linear-gradient(135deg,#8296ff,#6074ee); font-size: 12px; font-weight: 750; box-shadow: 0 5px 12px rgba(91,112,220,.18); }
 .search-place-button:disabled { opacity: .55; }
 .place-results {
