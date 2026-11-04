@@ -18,6 +18,7 @@ sealed interface NavigationResult {
 interface NavigationPort {
     suspend fun navigateTo(point: Point): NavigationResult
     suspend fun navigateRoute(destination: Point, waypoints: List<Point>): NavigationResult = navigateTo(destination)
+    suspend fun showNavigationScreen() = Unit
     suspend fun close()
     fun failNextRequest(): Boolean = false
 }

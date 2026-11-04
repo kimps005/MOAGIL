@@ -9,6 +9,8 @@ let autoPlanInFlight = false;
 let autoPlanRequested = false;
 let autoPlanAttemptKey = null;
 let passengerRefreshTimer = null;
+let pinLookupSequence = 0;
+let pinAddressLookupPromise = Promise.resolve();
 const state = {
   session: null,
   credentials: null,
@@ -23,6 +25,8 @@ const state = {
   passengerProgress: null,
   passengerAccount: null,
   editingPassenger: false,
+  editingPassengerName: false,
+  passengerEditName: '',
   passengerNameInput: '',
   searchQuery: '',
   searchResults: [],
@@ -307,6 +311,8 @@ function selectSearchResult(index) {
     return;
   }
   const place = placeParts(feature);
+  pinLookupSequence += 1;
+  pinAddressLookupPromise = Promise.resolve();
   state.pin = { lat: +lat.toFixed(6), lon: +lon.toFixed(6), label: place.label };
   state.searchQuery = place.title;
   state.searchResults = [];
@@ -355,10 +361,10 @@ function joinMarkup() {
   const searchMessage = state.searching ? '검색 중…' : state.searchError;
   const savedDisplayName = state.editingPassenger ? state.passengerProgress?.passenger?.displayName || '' : '';
   const identityField = state.editingPassenger
-    ? '<div class="passenger-edit-identity">' + esc(passengerName(savedDisplayName)) + '</div>'
+    ? '<div class="passenger-edit-identity"><div class="passenger-edit-name-line"><span id="passenger-edit-name-display">' + esc(passengerName(savedDisplayName)) + '</span><button type="button" class="passenger-name-edit-button" data-action="edit-passenger-name" aria-label="이름 수정" title="이름 수정">✏️</button></div><div class="passenger-name-editor" id="passenger-name-editor"' + (state.editingPassengerName ? '' : ' hidden') + '><input id="passenger-edit-name" name="passengerEditName" type="text" maxlength="20" value="' + esc(state.passengerEditName || savedDisplayName) + '" placeholder="이름이나 별명" aria-label="이름이나 별명"><button type="button" class="tiny-button" data-action="cancel-passenger-name-edit">취소</button></div></div>'
     : '<input id="display-name" name="displayName" maxlength="20" value="' + esc(state.passengerNameInput) + '" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required>';
   const cancelEdit = state.editingPassenger ? '<button type="button" class="tiny-button passenger-cancel-edit" data-action="cancel-passenger-edit">수정 취소</button>' : '';
-  return heading + '<form id="passenger-form"><section class="phone-card destination-card">' + identityField + '<div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div>' + cancelEdit + '</section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>' + (state.editingPassenger ? '수정 저장' : '목적지 등록') + '</button></div></form></main>';
+  return heading + '<form id="passenger-form"><section class="phone-card destination-card">' + identityField + '<div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div><div class="selected-point-address" aria-live="polite"><span aria-hidden="true">⌖</span><span id="selected-point-address-value">' + esc(state.pin.label || '지도에서 위치를 선택해 주세요') + '</span></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div>' + cancelEdit + '</section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>' + (state.editingPassenger ? '수정 저장' : '목적지 등록') + '</button></div></form></main>';
 }
 
 function render() {
@@ -543,7 +549,33 @@ async function handleAction(button) {
       state.searchError = '';
       state.joinError = '';
       state.editingPassenger = true;
+      state.editingPassengerName = false;
+      state.passengerEditName = person.displayName;
       render();
+      return;
+    }
+    if (action === 'edit-passenger-name') {
+      if (!state.passengerProgress?.canEdit) return toast('이동이 시작되어 이름을 수정할 수 없습니다.');
+      state.editingPassengerName = true;
+      const editor = byId('passenger-name-editor');
+      const display = byId('passenger-edit-name-display');
+      const input = byId('passenger-edit-name');
+      if (editor) editor.hidden = false;
+      if (display) display.hidden = true;
+      button.hidden = true;
+      input?.focus();
+      input?.select();
+      return;
+    }
+    if (action === 'cancel-passenger-name-edit') {
+      state.editingPassengerName = false;
+      state.passengerEditName = state.passengerProgress?.passenger?.displayName || '';
+      const editor = byId('passenger-name-editor');
+      const display = byId('passenger-edit-name-display');
+      const editButton = app.querySelector('[data-action="edit-passenger-name"]');
+      if (editor) editor.hidden = true;
+      if (display) display.hidden = false;
+      if (editButton) editButton.hidden = false;
       return;
     }
     if (action === 'cancel-passenger-edit') {
@@ -553,6 +585,7 @@ async function handleAction(button) {
       state.searchError = '';
       state.joinError = '';
       state.editingPassenger = false;
+      state.editingPassengerName = false;
       render();
       return;
     }
@@ -666,11 +699,30 @@ async function refreshSession(force = false) {
 }
 
 function updatePassengerPoint(point) {
+  const latitude = +Number(point.lat).toFixed(6);
+  const longitude = +Number(point.lon).toFixed(6);
+  const sequence = ++pinLookupSequence;
   state.pin = {
-    lat: +Number(point.lat).toFixed(6),
-    lon: +Number(point.lon).toFixed(6),
-    label: String(point.label || '지도에서 선택한 위치'),
+    lat: latitude,
+    lon: longitude,
+    label: '주소 확인 중…',
   };
+  const addressLabel = byId('selected-point-address-value');
+  if (addressLabel) addressLabel.textContent = state.pin.label;
+  pinAddressLookupPromise = api('/api/reverse-geocode?lat=' + latitude + '&lon=' + longitude)
+    .then(result => {
+      if (sequence !== pinLookupSequence) return;
+      const label = String(result.label || '').trim();
+      state.pin.label = label || `주소 정보 없음 · ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      const currentLabel = byId('selected-point-address-value');
+      if (currentLabel) currentLabel.textContent = state.pin.label;
+    })
+    .catch(() => {
+      if (sequence !== pinLookupSequence) return;
+      state.pin.label = `주소 확인 불가 · ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      const currentLabel = byId('selected-point-address-value');
+      if (currentLabel) currentLabel.textContent = state.pin.label;
+    });
 }
 
 async function bindPassengerMap() {
@@ -748,15 +800,18 @@ async function submitPassenger(event) {
   event.preventDefault();
   const form = event.target;
   const nickname = state.editingPassenger ? '' : form.elements.displayName.value.trim();
-  const name = state.editingPassenger ? passengerName(state.passengerProgress.passenger.displayName) : nickname;
+  const name = state.editingPassenger
+    ? (state.editingPassengerName ? state.passengerEditName.trim() : state.passengerProgress.passenger.displayName)
+    : nickname;
   const errorNode = byId('phone-error');
-  if (!state.editingPassenger && (!nickname || Array.from(name).length > 20)) { if (errorNode) errorNode.textContent = '이름을 확인해 주세요.'; return; }
-  state.pin.label = state.pin.label || '선택한 위치';
+  if (!name || Array.from(name).length > 20) { if (errorNode) errorNode.textContent = '이름을 1~20자로 입력해 주세요.'; return; }
   state.saving = true;
   const button = form.querySelector('.phone-submit');
   button.disabled = true;
   button.textContent = state.editingPassenger ? '저장 중…' : '등록 중…';
   try {
+    await pinAddressLookupPromise;
+    state.pin.label = state.pin.label || '선택한 위치';
     if (state.passengerAccount) {
       const updated = await api(
         '/api/sessions/' + state.joinId + '/passengers/' + state.passengerAccount.passengerId,
@@ -768,6 +823,7 @@ async function submitPassenger(event) {
       state.passengerNameInput = name;
       state.joinError = '';
       state.editingPassenger = false;
+      state.editingPassengerName = false;
       state.saving = false;
       render();
       return;
@@ -856,6 +912,8 @@ app.addEventListener('input', event => {
     state.searchResults = [];
     state.searchError = '';
     renderPlaceSearchResults();
+  } else if (event.target.id === 'passenger-edit-name') {
+    state.passengerEditName = event.target.value;
   }
 });
 

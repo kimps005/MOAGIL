@@ -17,7 +17,7 @@
 .\gradlew.bat testMockDebugUnitTest assembleMockDebug assemblePleosDebug
 ```
 
-Pleos SDK는 공식 Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입니다. `pleosDebug`만 `pleos.car.permission.NAVI_ROUTE_SEARCH` 권한을 요청합니다. 에뮬레이터용 x86_64 APK와 Android 기기용 ARM64 APK는 `app/build/outputs/apk/pleos/debug/`에 생성됩니다. Mock APK는 `app/build/outputs/apk/mock/debug/`에 생성됩니다.
+Pleos SDK는 공식 Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입니다. `pleosDebug`는 목적지 설정과 내비 화면 전환을 위해 `pleos.car.permission.NAVI_ROUTE_SEARCH`, `pleos.car.permission.NAVI_CUSTOM_MAP` 권한을 요청합니다. 에뮬레이터용 x86_64 APK와 Android 기기용 ARM64 APK는 `app/build/outputs/apk/pleos/debug/`에 생성됩니다. Mock APK는 `app/build/outputs/apk/mock/debug/`에 생성됩니다.
 
 기본 연결 주소는 고정 배포 주소 `https://moagil-eta.vercel.app`입니다. 이 주소를 Kakao Developers의 JavaScript SDK 허용 도메인에 등록하면 에뮬레이터와 차량 앱에서 LAN IP가 바뀌어도 같은 허용 주소를 사용합니다. 이전에 저장한 로컬 서버 주소는 새 세션을 만들 때 배포 주소로 자동 전환됩니다. 로컬 서버를 직접 시험할 때만 앱의 서버 주소 설정에서 `http://10.0.2.2:8080` 또는 기기의 LAN 주소를 사용하고 해당 주소를 Kakao 허용 도메인에 추가하세요. 기존 `local.properties`의 `sdk.dir` 줄은 유지하고 이 파일은 Git에 추가하지 않습니다.
 

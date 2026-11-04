@@ -7,6 +7,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -279,6 +280,132 @@ def _search_places(query: str) -> dict:
     if os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip():
         return _kakao_local_search(query)
     return _photon_search(query)
+
+
+def _photon_reverse_geocode(latitude: float, longitude: float) -> dict:
+    global _geocode_last_request
+    cache_key = f"photon:reverse:{latitude:.6f},{longitude:.6f}"
+    with _geocode_lock:
+        now = time.monotonic()
+        cached = _geocode_cache.get(cache_key)
+        if cached and now - cached[0] < GEOCODE_CACHE_TTL_SECONDS:
+            _geocode_cache.move_to_end(cache_key)
+            return cached[1]
+        if cached:
+            del _geocode_cache[cache_key]
+
+        wait = GEOCODE_MIN_INTERVAL_SECONDS - (now - _geocode_last_request)
+        if wait > 0:
+            time.sleep(wait)
+        _geocode_last_request = time.monotonic()
+        url = "https://photon.komoot.io/reverse?" + urlencode({
+            "lat": f"{latitude:.6f}",
+            "lon": f"{longitude:.6f}",
+            "limit": 1,
+        })
+        request = Request(url, headers={
+            "Accept": "application/geo+json, application/json",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "User-Agent": "MOAGIL-Prototype/1.0 (OpenStreetMap destination reverse geocoding)",
+        })
+        try:
+            with urlopen(request, timeout=8) as response:
+                payload = json.load(response)
+        except (OSError, TimeoutError, URLError, json.JSONDecodeError) as exc:
+            raise ApiError(502, "GEOCODER_UNAVAILABLE", "선택한 위치의 주소를 불러오지 못했어요.") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+            raise ApiError(502, "GEOCODER_INVALID_RESPONSE", "선택한 위치의 주소를 읽지 못했어요.")
+
+        properties = payload["features"][0].get("properties", {}) if payload["features"] else {}
+        properties = properties if isinstance(properties, dict) else {}
+        street = str(properties.get("street") or "").strip()
+        house_number = str(properties.get("housenumber") or "").strip()
+        road_address = " ".join(part for part in (street, house_number) if part)
+        name = str(properties.get("name") or "").strip()
+        locality = []
+        for part in (properties.get("district"), properties.get("city"), properties.get("state")):
+            value = str(part or "").strip()
+            if value and value not in locality and value not in road_address:
+                locality.append(value)
+        address = ", ".join(([road_address or name] if road_address or name else []) + locality)
+        result = {
+            "label": address,
+            "roadAddress": road_address,
+            "address": "",
+            "source": "photon",
+        }
+        _geocode_cache[cache_key] = (time.monotonic(), result)
+        _geocode_cache.move_to_end(cache_key)
+        while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
+            _geocode_cache.popitem(last=False)
+        return result
+
+
+def _kakao_reverse_geocode(latitude: float, longitude: float) -> dict:
+    global _geocode_last_request
+    cache_key = f"kakao:reverse:{latitude:.6f},{longitude:.6f}"
+    with _geocode_lock:
+        now = time.monotonic()
+        cached = _geocode_cache.get(cache_key)
+        if cached and now - cached[0] < GEOCODE_CACHE_TTL_SECONDS:
+            _geocode_cache.move_to_end(cache_key)
+            return cached[1]
+        if cached:
+            del _geocode_cache[cache_key]
+
+        wait = GEOCODE_MIN_INTERVAL_SECONDS - (now - _geocode_last_request)
+        if wait > 0:
+            time.sleep(wait)
+        _geocode_last_request = time.monotonic()
+
+        api_key = os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip()
+        if not api_key:
+            raise ApiError(503, "GEOCODER_NOT_CONFIGURED", "카카오 주소 검색 키를 서버에 설정해 주세요.")
+        url = "https://dapi.kakao.com/v2/local/geo/coord2address.json?" + urlencode({
+            "x": f"{longitude:.6f}",
+            "y": f"{latitude:.6f}",
+            "input_coord": "WGS84",
+        })
+        request = Request(url, headers={
+            "Authorization": f"KakaoAK {api_key}",
+            "Accept": "application/json",
+            "User-Agent": "MOAGIL-Prototype/1.0 (Kakao Local reverse geocoding)",
+        })
+        try:
+            with urlopen(request, timeout=8) as response:
+                payload = json.load(response)
+        except HTTPError as exc:
+            if exc.code in (401, 403):
+                raise ApiError(502, "GEOCODER_AUTH_FAILED", "카카오 주소 검색 인증 키나 API 사용 설정을 확인해 주세요.") from exc
+            raise ApiError(502, "GEOCODER_UNAVAILABLE", "선택한 위치의 주소를 불러오지 못했어요.") from exc
+        except (OSError, TimeoutError, URLError, json.JSONDecodeError) as exc:
+            raise ApiError(502, "GEOCODER_UNAVAILABLE", "선택한 위치의 주소를 불러오지 못했어요.") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("documents"), list):
+            raise ApiError(502, "GEOCODER_INVALID_RESPONSE", "선택한 위치의 주소를 읽지 못했어요.")
+
+        document = payload["documents"][0] if payload["documents"] else {}
+        document = document if isinstance(document, dict) else {}
+        address_info = document.get("address") if isinstance(document.get("address"), dict) else {}
+        road_info = document.get("road_address") if isinstance(document.get("road_address"), dict) else {}
+        address = str(address_info.get("address_name") or "").strip()
+        road_address = str(road_info.get("address_name") or "").strip()
+        result = {
+            "label": road_address or address,
+            "roadAddress": road_address,
+            "address": address,
+            "source": "kakao",
+        }
+        _geocode_cache[cache_key] = (time.monotonic(), result)
+        _geocode_cache.move_to_end(cache_key)
+        while len(_geocode_cache) > MAX_GEOCODE_CACHE_ITEMS:
+            _geocode_cache.popitem(last=False)
+        return result
+
+
+def _reverse_geocode(latitude: float, longitude: float) -> dict:
+    if os.environ.get("MOAGIL_KAKAO_REST_API_KEY", "").strip():
+        return _kakao_reverse_geocode(latitude, longitude)
+    return _photon_reverse_geocode(latitude, longitude)
 
 
 def _map_tile_expiry(headers, now: float, previous: dict | None = None) -> tuple[dict, bool]:
@@ -814,6 +941,21 @@ class Handler(BaseHTTPRequestHandler):
                 if len(query) > 80:
                     raise ApiError(400, "QUERY_TOO_LONG", "검색어는 80자 이내로 입력해 주세요.")
                 return self._send_json(200, _search_places(query))
+            if path == "/api/reverse-geocode":
+                params = parse_qs(urlsplit(self.path).query)
+                try:
+                    latitude = float(params.get("lat", [""])[0])
+                    longitude = float(params.get("lon", [""])[0])
+                except (TypeError, ValueError):
+                    raise ApiError(400, "INVALID_COORDINATE", "지도에서 선택한 위치를 확인해 주세요.") from None
+                if (
+                    not math.isfinite(latitude)
+                    or not math.isfinite(longitude)
+                    or not -90 <= latitude <= 90
+                    or not -180 <= longitude <= 180
+                ):
+                    raise ApiError(400, "INVALID_COORDINATE", "지도에서 선택한 위치를 확인해 주세요.")
+                return self._send_json(200, _reverse_geocode(latitude, longitude))
             if path.startswith("/api/sessions/"):
                 _ensure_db_ready()
                 parts = path.split("/")

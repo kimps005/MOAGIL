@@ -256,6 +256,19 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         acceptSession(updated, "수동 순서를 저장하고 선택한 순서의 모의 비용을 다시 계산했습니다.")
     }
 
+    fun reorderPassengers(order: List<String>) = driverAction {
+        ensureParked()
+        val session = requireSession()
+        check(session.state == "PLANNED") { "먼저 가능한 순서를 계산해 주세요." }
+        val expectedIds = session.selectedOrder.toSet()
+        check(order.size == session.selectedOrder.size && order.toSet() == expectedIds) { "모든 동승자를 한 번씩 포함해야 합니다." }
+        check(session.priorityPassengerId == null || order.firstOrNull() == session.priorityPassengerId) { "우선 승객은 첫 번째 순서에 고정됩니다." }
+        if (order == session.selectedOrder) return@driverAction
+        val credentials = requireCredentials()
+        val updated = MoagilApi(credentials.apiBaseUrl).selectOrder(credentials, session, order)
+        acceptSession(updated, "드래그한 하차 순서를 저장하고 경로 시간을 다시 계산했습니다.")
+    }
+
     fun startRoute() = driverAction {
         ensureParked()
         val credentials = requireCredentials()
@@ -347,6 +360,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         if (BuildConfig.PLEOS_NATIVE_NAVIGATION && !force) {
             when {
                 session.activeIndex < pleosCoveredPassengerUntil -> {
+                    navigation.showNavigationScreen()
                     _state.value = _state.value.copy(
                         navigationMessage = "Pleos 내비 구간 안내 중 · 다음 하차 ${remainingPassengerStops.firstOrNull()?.label ?: "최종 목적지"}",
                         navigationConfirmed = true,
@@ -354,6 +368,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                     return
                 }
                 session.activeIndex >= session.selectedOrder.size && pleosSegmentIncludesFinalDestination -> {
+                    navigation.showNavigationScreen()
                     _state.value = _state.value.copy(
                         navigationMessage = "Pleos 내비 최종 목적지 안내 중 · ${session.finalPoint?.label}",
                         navigationConfirmed = true,

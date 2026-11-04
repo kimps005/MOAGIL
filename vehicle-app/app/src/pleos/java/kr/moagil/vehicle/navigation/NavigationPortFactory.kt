@@ -8,6 +8,7 @@ import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteWithWaypointsRequest
 import ai.pleos.playground.navi.data.RouteStartInfo
 import ai.pleos.playground.navi.data.DrivingInfo
+import ai.pleos.playground.navi.data.NavigationScreenRequest
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
@@ -55,6 +56,14 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
 
     override suspend fun navigateTo(point: Point): NavigationResult = navigateRoute(point, emptyList())
 
+    override suspend fun showNavigationScreen() = routeLock.withLock {
+        val connected = connect()
+            ?: throw IllegalStateException(connectionFailure ?: "Pleos NaviHelper 서비스에 연결할 수 없습니다.")
+        withContext(Dispatchers.Main.immediate) {
+            connected.helper.requestNavigationScreen(NavigationScreenRequest.Foreground)
+        }
+    }
+
     override suspend fun navigateRoute(destination: Point, waypoints: List<Point>): NavigationResult {
         require(waypoints.size <= 2) { "Pleos 내비 경유지는 한 구간에 최대 2개까지 보낼 수 있습니다." }
         val startedAtElapsedMs = SystemClock.elapsedRealtime()
@@ -93,6 +102,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
                             ),
                         )
                     }
+                    connected.helper.requestNavigationScreen(NavigationScreenRequest.Foreground)
                 }
                 withTimeoutOrNull(ROUTE_RESPONSE_TIMEOUT_MS) { pending.result.await() }
                     ?: NavigationResult.Rejected(

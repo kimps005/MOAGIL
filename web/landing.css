@@ -611,3 +611,19 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
   .join-map-card { min-height: 250px; }
   .join-qr-card { padding: 10px; }
 }
+
+@media (max-height: 620px) {
+  .has-scroll-story .scroll-story { height: auto; }
+  .has-scroll-story .story-sticky { position: relative; top: auto; height: auto; min-height: 0; overflow: visible; padding: 24px 0; }
+  .has-scroll-story .story-scenes { position: relative; inset: auto; display: grid; gap: 26px; }
+  .has-scroll-story .story-scene,
+  .has-scroll-story .story-scene.is-active { position: relative; inset: auto; width: 100%; height: auto; min-height: 0; padding: 24px 0; opacity: 1; visibility: visible; transform: none; transition: none; pointer-events: auto; }
+  .has-scroll-story .scene-layout { height: auto; }
+  .has-scroll-story .story-progress,
+  .has-scroll-story .story-track,
+  .has-scroll-story .scroll-cue { display: none; }
+}
+@media (max-height: 620px) and (max-width: 620px) {
+  .has-scroll-story .story-scene { padding: 14px 0 24px; }
+  .has-scroll-story .scene-layout { padding: 0 18px; }
+}

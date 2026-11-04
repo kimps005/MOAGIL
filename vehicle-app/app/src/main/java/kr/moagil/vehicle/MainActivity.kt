@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -19,6 +21,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -62,25 +65,35 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.key
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -97,6 +110,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 private val Ink = Color(0xFFF4F5F9)
 private val Panel = Color.White
@@ -969,6 +983,57 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
     val active = session.state == "ACTIVE"
     val canEdit = state.canOperate && !state.busy && !active
     val names = session.passengers.associateBy(Passenger::id)
+    var localOrder by remember(session.sessionId) { mutableStateOf(session.selectedOrder) }
+    var draggingPassengerId by remember(session.sessionId) { mutableStateOf<String?>(null) }
+    var dragStartOrder by remember(session.sessionId) { mutableStateOf<List<String>?>(null) }
+    var dragOffsetY by remember(session.sessionId) { mutableFloatStateOf(0f) }
+    var optimisticOrderVersion by remember(session.sessionId) { mutableStateOf<Int?>(null) }
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val rowHeight = 96.dp
+    val rowSlotHeight = 104.dp
+    val rowSlotHeightPx = with(density) { rowSlotHeight.toPx() }
+
+    LaunchedEffect(session.version) {
+        if (draggingPassengerId == null) {
+            localOrder = session.selectedOrder
+            optimisticOrderVersion = null
+        }
+    }
+    LaunchedEffect(state.errorMessage) {
+        if (state.errorMessage != null && optimisticOrderVersion != null && session.version == optimisticOrderVersion) {
+            localOrder = session.selectedOrder
+            draggingPassengerId = null
+            dragStartOrder = null
+            dragOffsetY = 0f
+            optimisticOrderVersion = null
+        }
+    }
+
+    fun movedOrder(order: List<String>, from: Int, to: Int): List<String> {
+        if (from !in order.indices || to !in order.indices || from == to) return order
+        return order.toMutableList().apply { add(to, removeAt(from)) }
+    }
+
+    fun saveOrder(next: List<String>) {
+        if (next == localOrder || !canEdit || draggingPassengerId != null) return
+        localOrder = next
+        optimisticOrderVersion = session.version
+        model.reorderPassengers(next)
+    }
+
+    fun finishDrag() {
+        if (draggingPassengerId == null) return
+        val originalOrder = dragStartOrder
+        draggingPassengerId = null
+        dragStartOrder = null
+        dragOffsetY = 0f
+        if (originalOrder != null && localOrder != originalOrder && canEdit) {
+            optimisticOrderVersion = session.version
+            model.reorderPassengers(localOrder)
+        }
+    }
+
     if (confirmPleosRoute) {
         AlertDialog(
             onDismissRequest = { confirmPleosRoute = false },
@@ -982,18 +1047,121 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SectionTitle("선택한 하차 순서", "${route.evaluatedCount}개 비교 · 추천/수동 비용 동일 provider")
             Text("${route.note} · ${formatDuration(route.durationMs)} · ${route.distanceM?.let { "${it}m" } ?: "거리 미제공"}", color = Mint, fontWeight = FontWeight.SemiBold)
-            session.selectedOrder.forEachIndexed { index, id ->
-                val passenger = names[id]
-                Row(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${index + 1}", color = Mint, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
-                        Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("위·아래 버튼을 누르거나 점 표시를 길게 눌러 드래그하세요.", color = Muted, fontSize = 12.sp)
+            val rowsHeight = if (localOrder.isEmpty()) 0.dp else rowSlotHeight * (localOrder.size - 1) + rowHeight
+            Box(Modifier.fillMaxWidth().height(rowsHeight)) {
+                localOrder.forEachIndexed { index, id ->
+                    key(id) {
+                        val passenger = names[id]
+                        val fixed = session.priorityPassengerId == id
+                        val isDragging = draggingPassengerId == id
+                        val animatedTop by animateDpAsState(
+                            targetValue = rowSlotHeight * index,
+                            animationSpec = tween(durationMillis = 260),
+                            label = "passenger-order-position-$id",
+                        )
+                        val animatedScale by animateFloatAsState(
+                            targetValue = if (isDragging) 1.035f else 1f,
+                            animationSpec = tween(durationMillis = 150),
+                            label = "passenger-order-scale-$id",
+                        )
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .height(rowHeight)
+                                .offset {
+                                    IntOffset(
+                                        x = 0,
+                                        y = animatedTop.roundToPx() + if (isDragging) dragOffsetY.roundToInt() else 0,
+                                    )
+                                }
+                                .zIndex(if (isDragging) 2f else 0f)
+                                .graphicsLayer {
+                                    scaleX = animatedScale
+                                    scaleY = animatedScale
+                                    shadowElevation = if (isDragging) 12.dp.toPx() else 0f
+                                }
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isDragging) AccentSoft else PanelRaised)
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("${index + 1}", color = Mint, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (fixed) Text("우선", color = Mint, fontSize = 10.sp)
+                            Box(
+                                Modifier.padding(horizontal = 3.dp)
+                                    .size(width = 34.dp, height = 48.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(if (isDragging) Color.White else Color.Transparent)
+                                    .pointerInput(id, canEdit, fixed) {
+                                        if (canEdit && !fixed) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    draggingPassengerId = id
+                                                    dragStartOrder = localOrder
+                                                    dragOffsetY = 0f
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                },
+                                                onDragEnd = { finishDrag() },
+                                                onDragCancel = {
+                                                    dragStartOrder?.let { localOrder = it }
+                                                    draggingPassengerId = null
+                                                    dragStartOrder = null
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    if (draggingPassengerId == id) {
+                                                        var nextOffset = dragOffsetY + amount.y
+                                                        val firstMovableIndex = if (session.priorityPassengerId == null) 0 else 1
+                                                        var index = localOrder.indexOf(id)
+                                                        while (nextOffset >= rowSlotHeightPx / 2 && index < localOrder.lastIndex) {
+                                                            localOrder = movedOrder(localOrder, index, index + 1)
+                                                            index += 1
+                                                            nextOffset -= rowSlotHeightPx
+                                                        }
+                                                        while (nextOffset <= -rowSlotHeightPx / 2 && index > firstMovableIndex) {
+                                                            localOrder = movedOrder(localOrder, index, index - 1)
+                                                            index -= 1
+                                                            nextOffset += rowSlotHeightPx
+                                                        }
+                                                        if (index == localOrder.lastIndex) nextOffset = nextOffset.coerceAtMost(rowSlotHeightPx / 2)
+                                                        if (index == firstMovableIndex) nextOffset = nextOffset.coerceAtLeast(-rowSlotHeightPx / 2)
+                                                        dragOffsetY = nextOffset
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    }
+                                    .semantics {
+                                        contentDescription = if (fixed) "우선 하차 고정" else "길게 눌러 드래그하여 하차 순서 변경"
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Canvas(Modifier.size(16.dp)) {
+                                    val radius = 1.6.dp.toPx()
+                                    for (row in 0..2) for (column in 0..1) {
+                                        drawCircle(
+                                            color = if (canEdit && !fixed) Muted else Border,
+                                            radius = radius,
+                                            center = Offset(x = size.width * (.3f + column * .4f), y = size.height * (.25f + row * .25f)),
+                                        )
+                                    }
+                                }
+                            }
+                            TextButton(
+                                onClick = { saveOrder(movedOrder(localOrder, index, index - 1)) },
+                                enabled = canEdit && draggingPassengerId == null && index > (if (session.priorityPassengerId == null) 0 else 1) && !fixed,
+                            ) { Text("위") }
+                            TextButton(
+                                onClick = { saveOrder(movedOrder(localOrder, index, index + 1)) },
+                                enabled = canEdit && draggingPassengerId == null && index < localOrder.lastIndex && !fixed,
+                            ) { Text("아래") }
+                        }
                     }
-                    val fixed = session.priorityPassengerId == id
-                    if (fixed) Text("우선 고정", color = Mint, fontSize = 11.sp)
-                    TextButton(onClick = { model.movePassenger(id, -1) }, enabled = canEdit && index > 0 && !fixed) { Text("위") }
-                    TextButton(onClick = { model.movePassenger(id, 1) }, enabled = canEdit && index < session.selectedOrder.lastIndex && !fixed) { Text("아래") }
                 }
             }
             Text("조회 ${route.fetchedAt} · 출처 ${route.dataSource} · 승객별 ETA는 제공하지 않음", color = Muted, fontSize = 11.sp)
