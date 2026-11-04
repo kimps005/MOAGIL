@@ -201,8 +201,8 @@ body.passenger-body {
 .passenger-progress-shell .passenger-progress-card { gap: 13px; margin-top: 0; padding: 16px; }
 .passenger-progress-shell .passenger-progress-metrics { grid-template-columns: 1fr; gap: 8px; }
 .passenger-progress-shell .passenger-progress-metric { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px 15px; }
-.passenger-progress-shell .passenger-progress-metric small { color: #68738b; font-size: 13px; }
-.passenger-progress-shell .passenger-progress-metric strong { color: #2d52ca; font-size: 19px; text-align: right; }
+.passenger-progress-shell .passenger-progress-metric small { color: #68738b; font-size: 13px; font-weight: 700; }
+.passenger-progress-shell .passenger-progress-metric strong { color: #2d52ca; font-size: 19px; font-weight: 750; text-align: right; }
 .passenger-progress-shell .passenger-progress-actions .btn { min-height: 48px; font-size: 14px; }
 .passenger-cancel-edit { display: block; margin: 12px auto 0; }
 @media (max-width: 360px) { .passenger-progress-card { padding: 15px; } .passenger-progress-actions { flex-direction: column; } }
