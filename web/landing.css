@@ -476,7 +476,7 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
 .page-shell { width: min(1320px, calc(100% - 64px)); }
 .scene-layout { grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr); gap: clamp(28px, 4.3vw, 62px); }
 .scene-visual { width: 100%; }
-.has-scroll-story .story-progress { left: max(16px, calc((100vw - 1320px) / 2 - 42px)); }
+.has-scroll-story .story-progress { left: max(8px, calc((100vw - 1320px) / 2 - 42px)); }
 .visual-board { width: 100%; max-width: 720px; border: 1px solid #fff; border-radius: 28px; }
 .gather-board, .route-board { padding: 0; }
 .gather-map, .route-map {
@@ -580,10 +580,34 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
   .join-visual { grid-template-columns: minmax(82px, .78fr) 24px minmax(0, 1.22fr); gap: 6px; }
   .route-step { width: 32px; height: 32px; font-size: 12px; }
 }
+@media (max-width: 620px) and (max-height: 600px) {
+  .has-scroll-story .scene-layout { gap: 10px; padding-top: 42px; padding-bottom: 26px; }
+  .has-scroll-story .scene-description { margin-top: 6px; }
+  .has-scroll-story .scene-copy .button-primary { min-height: 36px; margin-top: 8px; }
+  .gather-map, .route-map { height: clamp(210px, 38svh, 230px); }
+  .join-visual { height: clamp(215px, 38svh, 230px); }
+  .join-map-card { min-height: 205px; }
+}
 @media (min-width: 621px) and (max-width: 1000px) {
   .has-scroll-story .scene-layout { padding-top: 54px; }
   .has-scroll-story .story-progress { top: 16px; left: 50%; flex-direction: row; gap: 8px; transform: translateX(-50%); }
   .has-scroll-story .story-progress li { gap: 0; }
   .has-scroll-story .story-progress li::before, .has-scroll-story .story-progress li[aria-current="step"]::before { width: 25px; height: 3px; }
   .has-scroll-story .story-progress li span { display: none; }
+}
+@media (min-width: 621px) and (max-width: 1000px) and (max-height: 720px) {
+  .has-scroll-story .scene-layout {
+    grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-content: center;
+    gap: 24px;
+    padding-bottom: 36px;
+  }
+  .has-scroll-story .scene-copy h1, .has-scroll-story .scene-copy h2 { font-size: clamp(30px, 4.6vw, 40px); }
+  .has-scroll-story .scene-description { margin: 12px 0 16px; font-size: 12px; }
+  .has-scroll-story .scene-copy .button-primary { min-height: 44px; }
+  .gather-map, .route-map { height: clamp(230px, 44svh, 300px); }
+  .join-visual { height: clamp(260px, 44svh, 300px); grid-template-columns: minmax(86px, .72fr) 30px minmax(0, 1.28fr); gap: 8px; }
+  .join-map-card { min-height: 250px; }
+  .join-qr-card { padding: 10px; }
 }
