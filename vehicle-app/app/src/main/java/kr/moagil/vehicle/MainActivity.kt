@@ -1038,7 +1038,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
         AlertDialog(
             onDismissRequest = { confirmPleosRoute = false },
             title = { Text("Pleos 내비 목적지를 변경할까요?") },
-            text = { Text("최적화된 순서대로 다음 구간을 Pleos 내비에 전송합니다. 모아길은 경유지 FIRST·SECOND와 목적지로 다음 최대 3곳을 요청하고, 해당 구간을 마친 뒤 이어지는 구간을 보냅니다. 하차 확인은 모아길에서 계속 진행합니다. 현재 내비 경로는 바뀔 수 있습니다.") },
+            text = { Text("최적화된 순서대로 목적지를 한 곳씩 Pleos 내비에 전송합니다. 각 목적지에 도착해 모아길에서 하차를 확인하면 다음 목적지를 새로 요청합니다. 최종 목적지가 있으면 승객 하차를 마친 뒤 별도로 요청합니다. 현재 내비 경로는 바뀔 수 있습니다.") },
             confirmButton = { TextButton(onClick = { confirmPleosRoute = false; model.startRoute() }) { Text("Pleos 내비로 전송") } },
             dismissButton = { TextButton(onClick = { confirmPleosRoute = false }) { Text("취소") } },
         )

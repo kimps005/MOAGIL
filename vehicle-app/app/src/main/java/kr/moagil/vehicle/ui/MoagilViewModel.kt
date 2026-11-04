@@ -280,7 +280,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         val updated = MoagilApi(credentials.apiBaseUrl).start(credentials, session)
         pleosCoveredPassengerUntil = -1
         pleosSegmentIncludesFinalDestination = false
-        acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 다음 정차 구간을 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
+        acceptSession(updated, if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서를 확정했습니다. Pleos 내비에 첫 목적지를 요청합니다." else "경로를 확정했습니다. 실제 내비 앱은 연결되지 않았습니다.")
         requestCurrentNavigation(force = true)
     }
 
@@ -362,7 +362,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                 session.activeIndex < pleosCoveredPassengerUntil -> {
                     navigation.showNavigationScreen()
                     _state.value = _state.value.copy(
-                        navigationMessage = "Pleos 내비 구간 안내 중 · 다음 하차 ${remainingPassengerStops.firstOrNull()?.label ?: "최종 목적지"}",
+                        navigationMessage = "Pleos 내비 목적지 안내 중 · ${remainingPassengerStops.firstOrNull()?.label ?: "최종 목적지"}",
                         navigationConfirmed = true,
                     )
                     return
@@ -378,16 +378,15 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         val nextStop = remainingStops.first()
-        val routeSegment = remainingStops.take(3)
-        val destination = routeSegment.last()
-        val waypoints = routeSegment.dropLast(1)
-        val segmentPassengerCount = minOf(remainingPassengerStops.size, routeSegment.size)
-        val includesFinalDestination = routeSegment.size > segmentPassengerCount
-        val segmentLabel = if (routeSegment.size == 1) nextStop.label else "${nextStop.label}부터 ${destination.label}까지 ${routeSegment.size}곳"
+        val destination = nextStop
+        val waypoints: List<Point> = emptyList()
+        val segmentPassengerCount = minOf(remainingPassengerStops.size, 1)
+        val includesFinalDestination = remainingPassengerStops.isEmpty() && session.finalPoint != null
+        val segmentLabel = destination.label
         val startedAt = SystemClock.elapsedRealtime()
         _state.value = _state.value.copy(
             navigationMessage = if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                "Pleos 내비 다음 구간 요청 중 · $segmentLabel · 0.0초 경과"
+                "Pleos 내비 다음 목적지 요청 중 · $segmentLabel · 0.0초 경과"
             } else {
                 "모의 내비 안내 요청 중… · $segmentLabel"
             },
@@ -398,7 +397,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                 delay(200)
                 val elapsed = SystemClock.elapsedRealtime() - startedAt
                 _state.value = _state.value.copy(
-                    navigationMessage = "Pleos 내비 다음 구간 요청 중 · $segmentLabel · ${formatElapsed(elapsed)}초 경과",
+                    navigationMessage = "Pleos 내비 다음 목적지 요청 중 · $segmentLabel · ${formatElapsed(elapsed)}초 경과",
                 )
             }
         } else null
@@ -415,7 +414,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             NavigationResult.Confirmed -> _state.value.copy(navigationMessage = "모의 안내 확인 · $segmentLabel · 실제 차량 내비는 연결되지 않았습니다.", navigationConfirmed = true)
             is NavigationResult.Completed -> {
                 _state.value.copy(
-                    navigationMessage = "Pleos 내비 경로 탐색 완료 · 다음 하차 ${nextStop.label} · 구간 ${routeSegment.size}곳 · ${formatElapsed(result.elapsedMs)}초",
+                    navigationMessage = "Pleos 내비 경로 탐색 완료 · 목적지 $segmentLabel · ${formatElapsed(result.elapsedMs)}초",
                     navigationConfirmed = true,
                 )
             }
