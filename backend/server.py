@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from domain import RouteError, plan_routes, validate_point, utc_now, evaluate_route
+from domain import RouteError, plan_routes, validate_fixed_positions, validate_point, utc_now, evaluate_route
 from routing import (
     KAKAO_ATTRIBUTION,
     KAKAO_DATA_SOURCE,
@@ -634,6 +634,7 @@ def _init_db() -> None:
             final_point TEXT,
             priority_id TEXT,
             route_preference TEXT NOT NULL DEFAULT 'TIME',
+            fixed_positions TEXT NOT NULL DEFAULT '{}',
             selected_order TEXT,
             active_index INTEGER NOT NULL DEFAULT 0,
             route_snapshot TEXT
@@ -652,10 +653,13 @@ def _init_db() -> None:
         """)
         if _database_url():
             db.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS route_preference TEXT NOT NULL DEFAULT 'TIME'")
+            db.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS fixed_positions TEXT NOT NULL DEFAULT '{}'")
         else:
             columns = {column[1] for column in db.execute("PRAGMA table_info(sessions)").fetchall()}
             if "route_preference" not in columns:
                 db.execute("ALTER TABLE sessions ADD COLUMN route_preference TEXT NOT NULL DEFAULT 'TIME'")
+            if "fixed_positions" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN fixed_positions TEXT NOT NULL DEFAULT '{}'")
         db.execute("DELETE FROM sessions WHERE expires_at < ?", ((datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(),))
     global _db_ready
     _db_ready = True
@@ -676,6 +680,16 @@ def _ensure_db_ready() -> None:
 
 def _json(value: str | None, fallback=None):
     return json.loads(value) if value else fallback
+
+
+def _fixed_positions(row) -> dict[str, int]:
+    fixed = _json(row["fixed_positions"], {}) or {}
+    if not isinstance(fixed, dict):
+        fixed = {}
+    priority = row["priority_id"]
+    if priority and priority not in fixed and 1 not in fixed.values():
+        fixed[priority] = 1
+    return fixed
 
 
 def _session_row(db: sqlite3.Connection, session_id: str):
@@ -701,6 +715,7 @@ def _snapshot(db: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "finalPoint": _json(row["final_point"]),
         "priorityPassengerId": row["priority_id"],
         "routePreference": row["route_preference"],
+        "fixedPositions": _fixed_positions(row),
         "passengers": [
             {"id": p["id"], "displayName": p["display_name"], "point": _json(p["point"]), "createdAt": p["created_at"]}
             for p in passengers
@@ -1105,6 +1120,24 @@ class Handler(BaseHTTPRequestHandler):
                 ids = {p["id"] for p in self._passengers(db, session_id)}
                 if priority and priority not in ids:
                     raise ApiError(422, "INVALID_PRIORITY", "먼저 내릴 동승자를 목록에서 선택해 주세요")
+                current_fixed_positions = _fixed_positions(row)
+                if "fixedPositions" in body:
+                    fixed_positions = validate_fixed_positions(body.get("fixedPositions"), ids)
+                    if priority and fixed_positions.get(priority) != 1:
+                        raise ApiError(422, "INVALID_FIXED_ORDER", "먼저 하차할 동승자는 첫 번째 순서로 고정해야 합니다")
+                else:
+                    fixed_positions = dict(current_fixed_positions)
+                    if priority != row["priority_id"]:
+                        if row["priority_id"]:
+                            fixed_positions.pop(row["priority_id"], None)
+                        if priority:
+                            fixed_positions = {
+                                passenger_id: position
+                                for passenger_id, position in fixed_positions.items()
+                                if position != 1 or passenger_id == priority
+                            }
+                            fixed_positions[priority] = 1
+                fixed_positions = validate_fixed_positions(fixed_positions, ids)
                 current_route = _json(row["route_snapshot"], {}) or {}
                 current_order = _json(row["selected_order"], []) or current_route.get("order", [])
                 reuse_single_passenger_route = (
@@ -1115,18 +1148,20 @@ class Handler(BaseHTTPRequestHandler):
                     and start == _json(row["start_point"])
                     and final == _json(row["final_point"])
                     and route_preference == (row["route_preference"] or "TIME")
+                    and fixed_positions == current_fixed_positions
                 )
                 next_version = row["version"] + 1
                 if reuse_single_passenger_route:
                     current_route["basisVersion"] = next_version
                 db.execute(
-                    "UPDATE sessions SET state=?,version=version+1,start_point=?,final_point=?,priority_id=?,route_preference=?,selected_order=?,route_snapshot=?,active_index=0 WHERE id=?",
+                    "UPDATE sessions SET state=?,version=version+1,start_point=?,final_point=?,priority_id=?,route_preference=?,fixed_positions=?,selected_order=?,route_snapshot=?,active_index=0 WHERE id=?",
                     (
                         "PLANNED" if reuse_single_passenger_route else "COLLECTING",
                         json.dumps(start, ensure_ascii=False),
                         json.dumps(final, ensure_ascii=False) if final else None,
                         priority,
                         route_preference,
+                        json.dumps(fixed_positions, ensure_ascii=False),
                         json.dumps(current_order) if reuse_single_passenger_route else None,
                         json.dumps(current_route, ensure_ascii=False) if reuse_single_passenger_route else None,
                         session_id,
@@ -1155,10 +1190,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._check_version(row, int(expected))
                 if row["state"] not in ("COLLECTING", "PLANNED"):
                     raise ApiError(409, "SESSION_ACTIVE", "이동을 시작한 뒤에는 동승자를 삭제할 수 없습니다")
+                before_order = _json(row["selected_order"], []) or (_json(row["route_snapshot"], {}) or {}).get("order", [])
+                if not before_order:
+                    before_order = [person["id"] for person in self._passengers(db, session_id)]
+                removed_index = before_order.index(passenger_id) if passenger_id in before_order else None
+                fixed_positions = _fixed_positions(row)
+                fixed_positions.pop(passenger_id, None)
+                if removed_index is not None:
+                    fixed_positions = {
+                        fixed_id: position - 1 if position > removed_index + 1 else position
+                        for fixed_id, position in fixed_positions.items()
+                    }
+                remaining_ids = {person["id"] for person in self._passengers(db, session_id) if person["id"] != passenger_id}
+                remaining_count = len(remaining_ids)
+                fixed_positions = {
+                    fixed_id: position
+                    for fixed_id, position in fixed_positions.items()
+                    if fixed_id in remaining_ids and position <= remaining_count
+                }
                 deleted = db.execute("DELETE FROM passengers WHERE id=? AND session_id=?", (passenger_id, session_id))
                 if deleted.rowcount == 0:
                     raise ApiError(404, "PASSENGER_NOT_FOUND", "동승자를 찾을 수 없습니다")
-                db.execute("UPDATE sessions SET state='COLLECTING',version=version+1,priority_id=CASE WHEN priority_id=? THEN NULL ELSE priority_id END,selected_order=NULL,route_snapshot=NULL WHERE id=?", (passenger_id, session_id))
+                db.execute("UPDATE sessions SET state='COLLECTING',version=version+1,priority_id=CASE WHEN priority_id=? THEN NULL ELSE priority_id END,fixed_positions=?,selected_order=NULL,route_snapshot=NULL WHERE id=?", (passenger_id, json.dumps(fixed_positions, ensure_ascii=False), session_id))
                 row = _session_row(db, session_id)
                 return self._send_json(200, _snapshot(db, row))
         except ApiError as error:
@@ -1215,6 +1268,7 @@ class Handler(BaseHTTPRequestHandler):
             passengers = self._passengers(db, session_id)
             final = _json(row["final_point"])
             priority_id = row["priority_id"]
+            fixed_positions = _fixed_positions(row)
             route_preference = row["route_preference"] or "TIME"
             basis_version = row["version"]
 
@@ -1242,6 +1296,7 @@ class Handler(BaseHTTPRequestHandler):
             evaluator,
             max_workers=2 if provider == "naver" else 1,
             timeout_seconds=120 if provider == "naver" else None,
+            fixed_positions=fixed_positions,
         )
         chosen = results[0]
         if provider in {"osrm", "kakao"}:
@@ -1294,6 +1349,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(422, "INVALID_ORDER", "모든 동승자를 한 번씩 포함해야 합니다")
             if row["priority_id"] and order[0] != row["priority_id"]:
                 raise ApiError(422, "PRIORITY_VIOLATION", "먼저 내릴 동승자는 첫 번째에 두어야 합니다")
+            fixed_positions = validate_fixed_positions(_fixed_positions(row), expected)
+            if any(order[position - 1] != passenger_id for passenger_id, position in fixed_positions.items()):
+                raise ApiError(422, "FIXED_ORDER_VIOLATION", "고정된 동승자 위치를 그대로 유지해 주세요")
             by_id = {p["id"]: p for p in passengers}
             points = [_json(row["start_point"]), *[by_id[item]["point"] for item in order]]
             final = _json(row["final_point"])

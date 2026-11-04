@@ -40,6 +40,7 @@ data class DriverUiState(
     val vehiclePermissionGranted: Boolean = false,
     val canOperate: Boolean = false,
     val busy: Boolean = false,
+    val routeUpdating: Boolean = false,
     val autoPlanning: Boolean = false,
     val autoPlanError: String? = null,
     val finalEnabled: Boolean = false,
@@ -73,6 +74,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     private var pollJob: Job? = null
     private var healthJob: Job? = null
     private var autoPlanJob: Job? = null
+    private var orderUpdateJob: Job? = null
+    private var queuedOrder: List<String>? = null
     private var originSyncJob: Job? = null
     private var autoPlanAttemptKey: String? = null
     private var vehicleContextStarted = false
@@ -193,8 +196,18 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         autoPlanAttemptKey = null
         val reusableSingleStopRoute = session.passengers.size == 1 && session.route != null
         val final = finalPointOrNull()
+        val fixedPositions = session.fixedPositions.toMutableMap().apply {
+            session.priorityPassengerId?.takeIf { it != passengerId }?.let { remove(it) }
+            if (passengerId != null) {
+                entries.removeAll { (id, position) -> position == 1 && id != passengerId }
+                put(passengerId, 1)
+            }
+        }
+        _state.value = _state.value.copy(routeUpdating = true)
         val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
-            requireCredentials(), session, final, passengerId, routePreference = session.routePreference,
+            requireCredentials(), session, final, passengerId,
+            routePreference = session.routePreference,
+            fixedPositions = fixedPositions,
         )
         val reused = reusableSingleStopRoute && updated.route != null
         acceptSession(updated, if (reused) "우선 하차 설정을 저장했습니다." else "우선 하차 설정을 저장하고 경로를 다시 계산합니다.")
@@ -207,9 +220,11 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         if (session.routePreference == preference) return@driverAction
         autoPlanJob?.cancel()
         autoPlanAttemptKey = null
+        _state.value = _state.value.copy(routeUpdating = true)
         val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
             requireCredentials(), session, session.finalPoint, session.priorityPassengerId,
             routePreference = preference,
+            fixedPositions = session.fixedPositions,
         )
         acceptSession(updated, if (preference == "FREE") "무료 도로 우선으로 경로를 다시 계산합니다." else "시간 우선으로 경로를 다시 계산합니다.")
     }
@@ -218,6 +233,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         ensureParked()
         val session = requireSession()
         val final = if (enabled) finalPointOrNull(required = true) else null
+        _state.value = _state.value.copy(routeUpdating = true)
         val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
             requireCredentials(), session, final, _state.value.priorityId, routePreference = session.routePreference,
         )
@@ -227,11 +243,69 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
 
     fun plan() = driverAction {
         ensureParked()
+        _state.value = _state.value.copy(routeUpdating = true)
         val session = syncCurrentVehicleOrigin(requireSession())
         check(session.passengers.isNotEmpty()) { "동승자가 한 명 이상 등록돼야 경로를 계산할 수 있습니다." }
         val updated = MoagilApi(requireCredentials().apiBaseUrl).plan(requireCredentials(), session)
         val routeNote = updated.route?.note ?: "경로 결과를 확인하지 못했습니다."
         acceptSession(updated, "${updated.route?.evaluatedCount ?: 0}개 순서를 비교했습니다. $routeNote")
+    }
+
+    fun optimizeRoute() = driverAction {
+        ensureParked()
+        _state.value = _state.value.copy(routeUpdating = true)
+        autoPlanJob?.cancel()
+        autoPlanAttemptKey = null
+        val credentials = requireCredentials()
+        var session = requireSession()
+        check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 경로 순서를 최적화할 수 있습니다." }
+        if (session.routePreference != "TIME") {
+            session = MoagilApi(credentials.apiBaseUrl).saveSettings(
+                credentials,
+                session,
+                session.finalPoint,
+                session.priorityPassengerId,
+                routePreference = "TIME",
+                fixedPositions = session.fixedPositions,
+            )
+            acceptSession(session, null)
+        }
+        session = syncCurrentVehicleOrigin(session)
+        check(session.passengers.isNotEmpty()) { "동승자가 한 명 이상 등록돼야 경로를 계산할 수 있습니다." }
+        val updated = MoagilApi(credentials.apiBaseUrl).plan(credentials, session)
+        val routeNote = updated.route?.note ?: "경로 결과를 확인하지 못했습니다."
+        acceptSession(updated, "고정 위치를 유지해 가장 빠른 순서를 설정했습니다. $routeNote")
+    }
+
+    fun toggleFixedPosition(passengerId: String) = driverAction {
+        val session = requireSession()
+        check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 순서를 고정할 수 있습니다." }
+        val order = session.selectedOrder.ifEmpty { session.route?.order?.takeIf { it.isNotEmpty() } ?: session.passengers.map(Passenger::id) }
+        val position = order.indexOf(passengerId) + 1
+        check(position in 1..order.size) { "동승자 순서를 확인한 뒤 다시 시도해 주세요." }
+        val fixedPositions = session.fixedPositions.toMutableMap()
+        var priorityId = session.priorityPassengerId
+        if (fixedPositions.containsKey(passengerId)) {
+            fixedPositions.remove(passengerId)
+            if (priorityId == passengerId) priorityId = null
+        } else {
+            fixedPositions.entries.removeAll { (id, fixedPosition) -> fixedPosition == position && id != passengerId }
+            fixedPositions[passengerId] = position
+            if (position == 1) priorityId = passengerId
+        }
+        autoPlanJob?.cancel()
+        autoPlanAttemptKey = null
+        _state.value = _state.value.copy(routeUpdating = true)
+        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
+            requireCredentials(),
+            session,
+            session.finalPoint,
+            priorityId,
+            routePreference = session.routePreference,
+            fixedPositions = fixedPositions,
+        )
+        val visibleUpdate = if (updated.route == null) updated.copy(selectedOrder = order) else updated
+        acceptSession(visibleUpdate, if (fixedPositions.containsKey(passengerId)) "${position}번째 순서를 고정했습니다." else "고정 순서를 해제했습니다. 최적 경로를 다시 계산합니다.")
     }
 
     fun recalculate() {
@@ -241,32 +315,73 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         scheduleAutoPlan(session, force = true)
     }
 
-    fun movePassenger(passengerId: String, delta: Int) = driverAction {
-        ensureParked()
+    fun movePassenger(passengerId: String, delta: Int) {
+        if (!_state.value.canOperate || _state.value.busy) return
         val session = requireSession()
-        check(session.state == "PLANNED") { "먼저 가능한 순서를 계산해 주세요." }
+        if (session.state != "PLANNED") return
         val order = session.selectedOrder.toMutableList()
+        if (order.size < 2) return
         val from = order.indexOf(passengerId)
+        if (from !in order.indices) return
         val to = (from + delta).coerceIn(0, order.lastIndex)
-        check(from >= 0 && from != to) { "이 동승자는 더 이동할 수 없습니다." }
-        check(session.priorityPassengerId == null || (passengerId != session.priorityPassengerId && to != 0)) { "우선 승객은 첫 순서에 고정됩니다." }
+        if (from == to) return
+        if (!canMoveAcrossFixedPositions(session.selectedOrder, from, to, session.fixedPositions)) return
         order.removeAt(from)
         order.add(to, passengerId)
-        val updated = MoagilApi(requireCredentials().apiBaseUrl).selectOrder(requireCredentials(), session, order)
-        acceptSession(updated, "수동 순서를 저장하고 선택한 순서의 모의 비용을 다시 계산했습니다.")
+        reorderPassengers(order)
     }
 
-    fun reorderPassengers(order: List<String>) = driverAction {
-        ensureParked()
-        val session = requireSession()
-        check(session.state == "PLANNED") { "먼저 가능한 순서를 계산해 주세요." }
-        val expectedIds = session.selectedOrder.toSet()
-        check(order.size == session.selectedOrder.size && order.toSet() == expectedIds) { "모든 동승자를 한 번씩 포함해야 합니다." }
-        check(session.priorityPassengerId == null || order.firstOrNull() == session.priorityPassengerId) { "우선 승객은 첫 번째 순서에 고정됩니다." }
-        if (order == session.selectedOrder) return@driverAction
-        val credentials = requireCredentials()
-        val updated = MoagilApi(credentials.apiBaseUrl).selectOrder(credentials, session, order)
-        acceptSession(updated, "드래그한 하차 순서를 저장하고 경로 시간을 다시 계산했습니다.")
+    fun reorderPassengers(order: List<String>) {
+        val currentState = _state.value
+        val session = currentState.session ?: return
+        if (currentState.busy || !currentState.canOperate || session.state != "PLANNED") return
+        val currentOrder = session.selectedOrder
+        if (order.size != currentOrder.size || order.toSet() != currentOrder.toSet()) return
+        if (session.fixedPositions.any { (id, position) -> order.getOrNull(position - 1) != id }) return
+        if (order == currentOrder) return
+
+        queuedOrder = order
+        val optimisticRoute = session.route?.copy(order = order, geometry = emptyList())
+        _state.value = currentState.copy(
+            session = session.copy(selectedOrder = order, route = optimisticRoute),
+            routeUpdating = true,
+            errorMessage = null,
+            notice = null,
+        )
+        if (orderUpdateJob?.isActive == true) return
+
+        val credentials = currentState.credentials ?: run {
+            queuedOrder = null
+            _state.value = _state.value.copy(routeUpdating = false)
+            return
+        }
+        orderUpdateJob = viewModelScope.launch {
+            var serverSession = session
+            try {
+                while (true) {
+                    val nextOrder = queuedOrder ?: break
+                    queuedOrder = null
+                    serverSession = MoagilApi(credentials.apiBaseUrl).selectOrder(credentials, serverSession, nextOrder)
+                }
+                val latest = _state.value.session
+                if (latest?.sessionId == serverSession.sessionId && latest.selectedOrder == serverSession.selectedOrder) {
+                    acceptSession(serverSession, "하차 순서와 경로를 업데이트했습니다.", preserveOptimisticOrder = false)
+                    _state.value = _state.value.copy(routeUpdating = false)
+                }
+            } catch (error: Exception) {
+                queuedOrder = null
+                if (_state.value.session?.sessionId == serverSession.sessionId) {
+                    acceptSession(serverSession, null, preserveOptimisticOrder = false)
+                }
+                report(error)
+                _state.value = _state.value.copy(routeUpdating = false)
+            } finally {
+                orderUpdateJob = null
+                if (queuedOrder == null && _state.value.session?.sessionId == session.sessionId) {
+                    _state.value = _state.value.copy(routeUpdating = false)
+                }
+            }
+        }
     }
 
     fun startRoute() = driverAction {
@@ -470,20 +585,26 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         return Point(lat, lon, "운전자 최종 목적지 · 시연")
     }
 
-    private fun acceptSession(session: DriverSession, notice: String?) {
+    private fun acceptSession(session: DriverSession, notice: String?, preserveOptimisticOrder: Boolean = true) {
+        val localSession = _state.value.session
+        val preserveOrder = preserveOptimisticOrder && orderUpdateJob?.isActive == true &&
+            _state.value.routeUpdating && localSession?.sessionId == session.sessionId
+        val displayedSession = if (preserveOrder) {
+            session.copy(selectedOrder = localSession!!.selectedOrder, route = localSession.route)
+        } else session
         _state.value = _state.value.copy(
-            session = session,
+            session = displayedSession,
             connected = true,
-            priorityId = session.priorityPassengerId,
-            finalEnabled = session.finalPoint != null,
-            finalLat = session.finalPoint?.lat?.toString() ?: _state.value.finalLat,
-            finalLon = session.finalPoint?.lon?.toString() ?: _state.value.finalLon,
+            priorityId = displayedSession.priorityPassengerId,
+            finalEnabled = displayedSession.finalPoint != null,
+            finalLat = displayedSession.finalPoint?.lat?.toString() ?: _state.value.finalLat,
+            finalLon = displayedSession.finalPoint?.lon?.toString() ?: _state.value.finalLon,
             errorMessage = null,
             notice = notice ?: _state.value.notice,
         )
-        if (session.state in setOf("COLLECTING", "PLANNED") && session.passengers.isNotEmpty() && session.route == null) {
-            scheduleAutoPlan(session)
-        } else if (session.route != null) {
+        if (displayedSession.state in setOf("COLLECTING", "PLANNED") && displayedSession.passengers.isNotEmpty() && displayedSession.route == null) {
+            scheduleAutoPlan(displayedSession)
+        } else if (displayedSession.route != null) {
             _state.value = _state.value.copy(autoPlanError = null)
         }
     }
@@ -516,7 +637,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                     _state.value = _state.value.copy(autoPlanError = error.message ?: "추천 경로 계산에 실패했습니다.")
                 }
             } finally {
-                _state.value = _state.value.copy(autoPlanning = false)
+                _state.value = _state.value.copy(autoPlanning = false, routeUpdating = false)
             }
         }
     }
@@ -554,6 +675,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             priorityId = session.priorityPassengerId,
             startPoint = point,
             routePreference = session.routePreference,
+            fixedPositions = session.fixedPositions,
         )
         acceptSession(updated, null)
         return updated
@@ -571,12 +693,20 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         return 2 * earthRadius * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
     }
 
+    private fun canMoveAcrossFixedPositions(order: List<String>, from: Int, to: Int, fixedPositions: Map<String, Int>): Boolean {
+        if (from !in order.indices || to !in order.indices || from == to) return false
+        if (fixedPositions.containsKey(order[from])) return false
+        val fixedIndices = fixedPositions.values.map { it - 1 }.toSet()
+        val crossed = if (from < to) (from + 1..to) else (to until from)
+        return crossed.none { it in fixedIndices }
+    }
+
     private suspend fun launchBusy(action: suspend () -> Unit) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, errorMessage = null)
         try { action() } catch (error: Exception) { report(error) }
         finally {
-            _state.value = _state.value.copy(busy = false)
+            _state.value = _state.value.copy(busy = false, routeUpdating = false)
             val session = _state.value.session
             if (BuildConfig.PLEOS_NATIVE_NAVIGATION) _state.value.vehicleContext.location?.let(::syncOriginWhenUseful)
             if (session != null && session.state in setOf("COLLECTING", "PLANNED") && session.passengers.isNotEmpty() && session.route == null) {

@@ -56,6 +56,24 @@ def evaluate_route(points: Iterable[dict]) -> dict:
     }
 
 
+def validate_fixed_positions(fixed_positions: object, passenger_ids: Iterable[str]) -> dict[str, int]:
+    ids = list(passenger_ids)
+    if fixed_positions is None:
+        return {}
+    if not isinstance(fixed_positions, dict):
+        raise RouteError("고정 순서 정보가 올바르지 않습니다")
+    fixed: dict[str, int] = {}
+    for passenger_id, position in fixed_positions.items():
+        if not isinstance(passenger_id, str) or passenger_id not in ids:
+            raise RouteError("고정된 동승자를 찾을 수 없습니다")
+        if not isinstance(position, int) or isinstance(position, bool) or position < 1 or position > len(ids):
+            raise RouteError("고정 위치가 현재 동승자 수를 벗어났습니다")
+        fixed[passenger_id] = position
+    if len(set(fixed.values())) != len(fixed):
+        raise RouteError("같은 순서 위치를 두 명 이상 고정할 수 없습니다")
+    return fixed
+
+
 def plan_routes(
     start: dict,
     passengers: list[dict],
@@ -64,6 +82,7 @@ def plan_routes(
     evaluator: Callable[[list[dict]], dict] = evaluate_route,
     max_workers: int = 1,
     timeout_seconds: float | None = None,
+    fixed_positions: dict[str, int] | None = None,
 ) -> list[dict]:
     if not 1 <= len(passengers) <= 4:
         raise RouteError("경로 계산은 동승자 1~4명일 때 가능합니다")
@@ -73,12 +92,17 @@ def plan_routes(
     by_id = {p["id"]: p for p in passengers}
     if priority_id and priority_id not in by_id:
         raise RouteError("먼저 내릴 동승자를 찾을 수 없습니다")
-    remaining = [p for p in passengers if p["id"] != priority_id]
-    orders = (
-        [[by_id[priority_id], *tail] for tail in permutations(remaining)]
-        if priority_id
-        else [list(order) for order in permutations(passengers)]
-    )
+    fixed = validate_fixed_positions(fixed_positions, ids)
+    if priority_id:
+        if priority_id in fixed and fixed[priority_id] != 1:
+            raise RouteError("먼저 내릴 동승자는 첫 번째 순서로 고정해야 합니다")
+        fixed[priority_id] = 1
+    fixed = validate_fixed_positions(fixed, ids)
+    orders = [
+        list(order)
+        for order in permutations(passengers)
+        if all(order[position - 1]["id"] == passenger_id for passenger_id, position in fixed.items())
+    ]
     def score(order):
         points = [start, *[p["point"] for p in order]]
         if final_point:

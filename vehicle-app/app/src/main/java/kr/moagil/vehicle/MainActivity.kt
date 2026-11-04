@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -354,7 +355,7 @@ private fun Header(state: DriverUiState, onNewSession: () -> Unit) {
             )
             if (state.session != null) {
                 Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onNewSession, enabled = !state.busy) { Text("새 QR", color = Muted) }
+                TextButton(onClick = onNewSession, enabled = !state.busy && !state.routeUpdating) { Text("새 QR", color = Muted) }
             }
         }
     }
@@ -424,6 +425,37 @@ private fun StartActions(state: DriverUiState, model: MoagilViewModel, modifier:
 }
 
 @Composable
+private fun VehicleMapWithRouteStatus(
+    session: DriverSession,
+    state: DriverUiState,
+    javascriptKey: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier.clip(RoundedCornerShape(18.dp))) {
+        KakaoVehicleMap(
+            session = session,
+            currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
+            javascriptKey = javascriptKey,
+            mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
+            assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (state.routeUpdating || state.autoPlanning) {
+            Column(
+                Modifier.align(Alignment.Center)
+                    .background(Color.White.copy(alpha = .95f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AnimatedMoagilLogo(Modifier.size(68.dp))
+                Text("최적 경로를 반영하고 있어요", color = Color(0xFF36457F), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
 private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDelete: (Passenger) -> Unit, onFinish: () -> Unit, modifier: Modifier = Modifier) {
     val session = state.session ?: return
     val credentials = state.credentials
@@ -432,12 +464,10 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
         val contentModifier = modifier.fillMaxSize().padding(14.dp)
         Box(contentModifier) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                KakaoVehicleMap(
+                VehicleMapWithRouteStatus(
                     session = session,
-                    currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
+                    state = state,
                     javascriptKey = state.kakaoMapJavascriptKey,
-                    mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                    assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                     modifier = Modifier.weight(1.7f).fillMaxHeight(),
                 )
                 if (terminal) {
@@ -457,12 +487,10 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
         BoxWithConstraints(modifier.fillMaxWidth()) {
             if (maxWidth > 900.dp) {
                 Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    KakaoVehicleMap(
+                    VehicleMapWithRouteStatus(
                         session = session,
-                        currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
+                        state = state,
                         javascriptKey = state.kakaoMapJavascriptKey,
-                        mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                        assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                         modifier = Modifier.weight(1.7f).fillMaxHeight(),
                     )
                     if (terminal) {
@@ -474,12 +502,10 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
             } else {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item {
-                        KakaoVehicleMap(
+                        VehicleMapWithRouteStatus(
                             session = session,
-                            currentLocation = state.vehicleContext.location.takeIf { state.vehicleContext.hasFreshLocation },
+                            state = state,
                             javascriptKey = state.kakaoMapJavascriptKey,
-                            mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                            assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                             modifier = Modifier.fillMaxWidth().height(360.dp),
                         )
                     }
@@ -535,7 +561,7 @@ private fun LiveStopsPanel(
                     minutes % 60L == 0L -> "${minutes / 60L}시간"
                     else -> "${minutes / 60L}시간 ${minutes % 60L}분"
                 }
-            } ?: if (state.autoPlanning) "계산 중" else "—"
+            }.takeUnless { state.routeUpdating || state.autoPlanning } ?: if (state.autoPlanning || state.routeUpdating) "계산 중" else "—"
             Row(
                 Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -549,7 +575,7 @@ private fun LiveStopsPanel(
                     Text("도로 경로", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     RoutePreferenceToggle(
                         selected = session.routePreference,
-                        enabled = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
+                        enabled = !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED"),
                         onSelect = model::setRoutePreference,
                     )
                 }
@@ -567,8 +593,18 @@ private fun LiveStopsPanel(
                 )
             }
 
+            if (session.passengers.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
+                Button(
+                    onClick = model::optimizeRoute,
+                    enabled = state.canOperate && !state.busy && !state.routeUpdating && !state.autoPlanning,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Text(if (state.routeUpdating || state.autoPlanning) "최적 경로 계산 중…" else "최적 경로 설정", fontWeight = FontWeight.Bold)
+                }
+            }
+
             if (orderedPeople.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
-                Text("핀을 누르면 해당 장소를 첫 하차로 고정합니다.", color = Muted, fontSize = 14.sp)
+                Text("핀으로 현재 순서를 고정하세요. 최적 경로를 다시 계산해도 고정 위치는 유지됩니다.", color = Muted, fontSize = 14.sp, lineHeight = 19.sp)
             }
 
             LazyColumn(
@@ -577,13 +613,21 @@ private fun LiveStopsPanel(
             ) {
                 items(orderedPeople, key = { it.id }) { passenger ->
                     val passengerIndex = session.passengers.indexOfFirst { it.id == passenger.id }.coerceAtLeast(0)
+                    val stopNumber = orderedPeople.indexOf(passenger) + 1
+                    val fixedPosition = session.fixedPositions[passenger.id]
+                    val fixedIndices = session.fixedPositions.values.map { it - 1 }.toSet()
+                    val canReorder = state.canOperate && !state.busy && session.state == "PLANNED"
                     FriendStopRow(
                         passenger = passenger,
-                        stopNumber = orderedPeople.indexOf(passenger) + 1,
+                        stopNumber = stopNumber,
                         passengerColor = PassengerTones[passengerIndex % PassengerTones.size],
-                        priority = session.priorityPassengerId == passenger.id,
-                        canPin = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
-                        onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
+                        fixedPosition = fixedPosition,
+                        canPin = !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED"),
+                        canMoveUp = canReorder && fixedPosition == null && stopNumber > 1 && stopNumber - 2 !in fixedIndices,
+                        canMoveDown = canReorder && fixedPosition == null && stopNumber < orderedPeople.size && stopNumber !in fixedIndices,
+                        onPin = { model.toggleFixedPosition(passenger.id) },
+                        onMoveUp = { model.movePassenger(passenger.id, -1) },
+                        onMoveDown = { model.movePassenger(passenger.id, 1) },
                     )
                 }
                 if (session.state == "ACTIVE") {
@@ -597,7 +641,7 @@ private fun LiveStopsPanel(
             if (session.state == "PLANNED" && route != null) {
                 Button(
                     onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
-                    enabled = state.canOperate && !state.busy,
+                    enabled = state.canOperate && !state.busy && !state.routeUpdating && !state.autoPlanning,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                 ) {
                     Text(if (state.canOperate) "이 순서로 안내 시작" else "정차 확인 후 안내 시작", fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -622,15 +666,20 @@ private fun FriendStopRow(
     passenger: Passenger,
     stopNumber: Int,
     passengerColor: Color,
-    priority: Boolean,
+    fixedPosition: Int?,
     canPin: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onPin: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
 ) {
+    val fixed = fixedPosition != null
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(17.dp))
-            .background(if (priority) AccentSoft else PanelRaised)
-            .border(1.dp, if (priority) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
+            .background(if (fixed) AccentSoft else PanelRaised)
+            .border(1.dp, if (fixed) Color(0xFFD8DDFB) else Border, RoundedCornerShape(17.dp))
             .padding(horizontal = 10.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -638,7 +687,7 @@ private fun FriendStopRow(
         Box(
             Modifier.size(48.dp)
                 .background(passengerColor, CircleShape)
-                .border(if (priority) 2.dp else 1.dp, if (priority) Color(0xFF2D52CA) else Color.White, CircleShape),
+                    .border(if (fixed) 2.dp else 1.dp, if (fixed) Color(0xFF2D52CA) else Color.White, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text("$stopNumber", color = Color(0xFF34425F), fontWeight = FontWeight.Bold, fontSize = 22.sp)
@@ -646,9 +695,9 @@ private fun FriendStopRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (priority) {
+                if (fixedPosition != null) {
                     Text(
-                        "먼저 하차",
+                        "${fixedPosition}번째 고정",
                         color = Color(0xFF36457F),
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
@@ -661,8 +710,8 @@ private fun FriendStopRow(
         IconButton(
             onClick = onPin,
             enabled = canPin,
-            modifier = Modifier.size(44.dp).background(if (priority) Color(0x1A000000) else Color.Transparent, RoundedCornerShape(15.dp))
-                .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
+            modifier = Modifier.size(44.dp).background(if (fixed) Color(0x1A000000) else Color.Transparent, RoundedCornerShape(15.dp))
+                .semantics { contentDescription = if (fixed) "${fixedPosition}번째 고정 해제" else "현재 ${stopNumber}번째 순서 고정" },
         ) {
             Canvas(Modifier.size(25.dp)) {
                 val w = size.width
@@ -686,10 +735,14 @@ private fun FriendStopRow(
                     lineTo(w * .38f, h * .34f)
                     close()
                 }
-                val tint = if (priority) Color.Black else Color(0xFF778096)
-                if (priority) drawPath(pin, tint)
+                val tint = if (fixed) Color.Black else Color(0xFF778096)
+                if (fixed) drawPath(pin, tint)
                 else drawPath(pin, tint, style = Stroke(width = 1.8.dp.toPx()))
             }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            TextButton(onClick = onMoveUp, enabled = canMoveUp, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(width = 34.dp, height = 30.dp)) { Text("↑", fontSize = 19.sp, lineHeight = 19.sp) }
+            TextButton(onClick = onMoveDown, enabled = canMoveDown, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(width = 34.dp, height = 30.dp)) { Text("↓", fontSize = 19.sp, lineHeight = 19.sp) }
         }
     }
 }
@@ -831,6 +884,9 @@ private fun RouteCalculationCard(state: DriverUiState, model: MoagilViewModel) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (state.autoPlanning) "추천 하차 순서를 계산하고 있어요" else "추천 순서 계산 대기", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Text(state.autoPlanError ?: "위치가 등록될 때마다 가능한 순서를 자동으로 비교합니다.", color = Muted, fontSize = 13.sp)
+            Button(onClick = model::optimizeRoute, enabled = state.canOperate && !state.busy && !state.autoPlanning && !state.routeUpdating) {
+                Text("최적 경로 설정")
+            }
             if (!state.autoPlanning) OutlinedButton(onClick = model::recalculate) { Text("다시 계산") }
         }
     }
@@ -900,7 +956,7 @@ private fun InviteCard(session: DriverSession, joinBaseUrl: String, inviteToken:
 
 @Composable
 private fun PassengerCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel, onDelete: (Passenger) -> Unit, modifier: Modifier = Modifier) {
-    val canRemove = state.canOperate && session.state in setOf("COLLECTING", "PLANNED")
+    val canRemove = state.canOperate && !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED")
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle("동승자", "등록된 위치만 차량 화면에 표시")
@@ -915,7 +971,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
                         Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
                         Text(passenger.point.label, color = Muted, fontSize = 17.sp, lineHeight = 23.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    if (canRemove) TextButton(onClick = { onDelete(passenger) }, enabled = !state.busy) { Text("삭제", color = Alert) }
+                    if (canRemove) TextButton(onClick = { onDelete(passenger) }) { Text("삭제", color = Alert) }
                 }
             }
         }
@@ -924,7 +980,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
 
 @Composable
 private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
-    val enabled = state.canOperate && !state.busy && session.state in setOf("COLLECTING", "PLANNED")
+    val enabled = state.canOperate && !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED")
     var expanded by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1011,7 +1067,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
     }
 
     fun movedOrder(order: List<String>, from: Int, to: Int): List<String> {
-        if (from !in order.indices || to !in order.indices || from == to) return order
+        if (from !in order.indices || to !in order.indices || from == to || !canMoveAcrossPinnedPositions(order, from, to, session.fixedPositions)) return order
         return order.toMutableList().apply { add(to, removeAt(from)) }
     }
 
@@ -1046,14 +1102,25 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SectionTitle("선택한 하차 순서", "${route.evaluatedCount}개 비교 · 추천/수동 비용 동일 provider")
-            Text("${route.note} · ${formatDuration(route.durationMs)} · ${route.distanceM?.let { "${it}m" } ?: "거리 미제공"}", color = Mint, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (state.routeUpdating) "새 순서의 경로를 계산하고 있어요…"
+                else "${route.note} · ${formatDuration(route.durationMs)} · ${route.distanceM?.let { "${it}m" } ?: "거리 미제공"}",
+                color = Mint,
+                fontWeight = FontWeight.SemiBold,
+            )
             Text("위·아래 버튼을 누르거나 점 표시를 길게 눌러 드래그하세요.", color = Muted, fontSize = 12.sp)
+            Button(
+                onClick = model::optimizeRoute,
+                enabled = canEdit && !state.routeUpdating && !state.autoPlanning,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("고정 위치를 유지하고 최적 경로 설정") }
             val rowsHeight = if (localOrder.isEmpty()) 0.dp else rowSlotHeight * (localOrder.size - 1) + rowHeight
             Box(Modifier.fillMaxWidth().height(rowsHeight)) {
                 localOrder.forEachIndexed { index, id ->
                     key(id) {
                         val passenger = names[id]
-                        val fixed = session.priorityPassengerId == id
+                        val fixedPosition = session.fixedPositions[id]
+                        val fixed = fixedPosition == index + 1
                         val isDragging = draggingPassengerId == id
                         val animatedTop by animateDpAsState(
                             targetValue = rowSlotHeight * index,
@@ -1090,7 +1157,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                                 Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            if (fixed) Text("우선", color = Mint, fontSize = 10.sp)
+                            if (fixed) Text("${fixedPosition}번째 고정", color = Mint, fontSize = 10.sp)
                             Box(
                                 Modifier.padding(horizontal = 3.dp)
                                     .size(width = 34.dp, height = 48.dp)
@@ -1116,20 +1183,23 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                                                     change.consume()
                                                     if (draggingPassengerId == id) {
                                                         var nextOffset = dragOffsetY + amount.y
-                                                        val firstMovableIndex = if (session.priorityPassengerId == null) 0 else 1
                                                         var index = localOrder.indexOf(id)
-                                                        while (nextOffset >= rowSlotHeightPx / 2 && index < localOrder.lastIndex) {
+                                                         while (nextOffset >= rowSlotHeightPx / 2 && index < localOrder.lastIndex &&
+                                                             canMoveAcrossPinnedPositions(localOrder, index, index + 1, session.fixedPositions)
+                                                         ) {
                                                             localOrder = movedOrder(localOrder, index, index + 1)
                                                             index += 1
                                                             nextOffset -= rowSlotHeightPx
                                                         }
-                                                        while (nextOffset <= -rowSlotHeightPx / 2 && index > firstMovableIndex) {
+                                                         while (nextOffset <= -rowSlotHeightPx / 2 && index > 0 &&
+                                                             canMoveAcrossPinnedPositions(localOrder, index, index - 1, session.fixedPositions)
+                                                         ) {
                                                             localOrder = movedOrder(localOrder, index, index - 1)
                                                             index -= 1
                                                             nextOffset += rowSlotHeightPx
                                                         }
                                                         if (index == localOrder.lastIndex) nextOffset = nextOffset.coerceAtMost(rowSlotHeightPx / 2)
-                                                        if (index == firstMovableIndex) nextOffset = nextOffset.coerceAtLeast(-rowSlotHeightPx / 2)
+                                                         if (index == 0) nextOffset = nextOffset.coerceAtLeast(-rowSlotHeightPx / 2)
                                                         dragOffsetY = nextOffset
                                                     }
                                                 },
@@ -1137,7 +1207,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                                         }
                                     }
                                     .semantics {
-                                        contentDescription = if (fixed) "우선 하차 고정" else "길게 눌러 드래그하여 하차 순서 변경"
+                                         contentDescription = if (fixed) "${index + 1}번째 순서 고정" else "길게 눌러 드래그하여 하차 순서 변경"
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -1154,11 +1224,11 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                             }
                             TextButton(
                                 onClick = { saveOrder(movedOrder(localOrder, index, index - 1)) },
-                                enabled = canEdit && draggingPassengerId == null && index > (if (session.priorityPassengerId == null) 0 else 1) && !fixed,
+                                enabled = canEdit && draggingPassengerId == null && index > 0 && canMoveAcrossPinnedPositions(localOrder, index, index - 1, session.fixedPositions),
                             ) { Text("위") }
                             TextButton(
                                 onClick = { saveOrder(movedOrder(localOrder, index, index + 1)) },
-                                enabled = canEdit && draggingPassengerId == null && index < localOrder.lastIndex && !fixed,
+                                enabled = canEdit && draggingPassengerId == null && index < localOrder.lastIndex && canMoveAcrossPinnedPositions(localOrder, index, index + 1, session.fixedPositions),
                             ) { Text("아래") }
                         }
                     }
@@ -1168,7 +1238,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
             if (session.state == "PLANNED") {
                 Button(
                     onClick = { if (BuildConfig.PLEOS_NATIVE_NAVIGATION) confirmPleosRoute = true else model.startRoute() },
-                    enabled = canEdit,
+                    enabled = canEdit && !state.routeUpdating && !state.autoPlanning,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "최적 순서 확정 · Pleos 내비 전송" else "경로 확정 · 모의 안내", fontWeight = FontWeight.Bold)
@@ -1177,6 +1247,14 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
             }
         }
     }
+}
+
+private fun canMoveAcrossPinnedPositions(order: List<String>, from: Int, to: Int, fixedPositions: Map<String, Int>): Boolean {
+    if (from !in order.indices || to !in order.indices || from == to) return false
+    if (fixedPositions.containsKey(order[from])) return false
+    val fixedIndices = fixedPositions.values.map { it - 1 }.toSet()
+    val crossed = if (from < to) (from + 1..to) else (to until from)
+    return crossed.none { it in fixedIndices }
 }
 
 @Composable

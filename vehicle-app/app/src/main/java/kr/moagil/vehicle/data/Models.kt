@@ -28,6 +28,7 @@ data class DriverSession(
     val selectedOrder: List<String>,
     val activeIndex: Int,
     val route: RouteSnapshot?,
+    val fixedPositions: Map<String, Int> = emptyMap(),
 )
 data class DriverCredentials(
     val apiBaseUrl: String,
@@ -52,6 +53,10 @@ object JsonModels {
             }
         }
         val selected = json.optJSONArray("selectedOrder") ?: JSONArray()
+        val fixed = json.optJSONObject("fixedPositions") ?: JSONObject()
+        val fixedPositions = fixed.keys().asSequence().mapNotNull { passengerId ->
+            fixed.optInt(passengerId, 0).takeIf { it > 0 }?.let { passengerId to it }
+        }.toMap()
         val routeJson = json.optJSONObject("routeSnapshot")
         val route = routeJson?.let {
             val geometry = it.optJSONArray("geometry") ?: JSONArray()
@@ -83,6 +88,7 @@ object JsonModels {
             selectedOrder = strings(selected),
             activeIndex = json.optInt("activeIndex", 0),
             route = route,
+            fixedPositions = fixedPositions,
         )
     }
 

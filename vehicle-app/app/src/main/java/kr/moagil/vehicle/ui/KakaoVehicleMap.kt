@@ -52,7 +52,7 @@ fun KakaoVehicleMap(
     val html = remember(origin, assetOrigin, key) {
         if (origin == null || assetOrigin == null || key.isEmpty()) null else vehicleMapHtml(origin, assetOrigin, key)
     }
-    val payload = remember(session.sessionId, session.version, currentLocation) {
+    val payload = remember(session, currentLocation) {
         session.toKakaoMapPayload(currentLocation)
     }
     val webView = remember(origin, key, html) {
