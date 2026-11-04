@@ -496,7 +496,7 @@ def fetch_kakao_route(points: list[dict], avoid_toll: bool = False) -> dict:
         "summary": False,
     }
     if avoid_toll:
-        request_body["avoid"] = "toll"
+        request_body["avoid"] = ["toll"]
     payload = _kakao_request_json(KAKAO_WAYPOINTS_DIRECTIONS_URL, request_body)
     routes = payload.get("routes")
     if not isinstance(routes, list) or not routes or not isinstance(routes[0], dict):
@@ -537,10 +537,14 @@ def fetch_kakao_route(points: list[dict], avoid_toll: bool = False) -> dict:
                     geometry.append(coordinate)
     if duration_ms < 0 or distance_m < 0 or len(geometry) < 2:
         raise RoutingError("카카오내비 경로 지도선을 만들 수 없습니다")
+    fare = summary.get("fare")
+    toll_krw = fare.get("toll") if isinstance(fare, dict) else None
+    if avoid_toll and toll_krw != 0:
+        raise RoutingError("카카오내비가 통행료 0원의 무료 도로 경로를 반환하지 않았습니다. 다른 경로를 선택해 주세요")
     result = {
         "durationMs": duration_ms,
         "distanceM": distance_m,
-        "tollKrw": (summary.get("fare") or {}).get("toll") if isinstance(summary.get("fare"), dict) else None,
+        "tollKrw": toll_krw,
         "dataSource": KAKAO_DATA_SOURCE,
         "fetchedAt": utc_now(),
         "geometry": geometry,

@@ -54,7 +54,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         fun elapsedMs(): Long = (SystemClock.elapsedRealtime() - startedAtElapsedMs).coerceAtLeast(0)
     }
 
-    override suspend fun navigateTo(point: Point): NavigationResult = navigateRoute(point, emptyList())
+    override suspend fun navigateTo(point: Point): NavigationResult = navigateRoute(point, emptyList(), "TIME")
 
     override suspend fun showNavigationScreen() = routeLock.withLock {
         val connected = connect()
@@ -64,7 +64,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         }
     }
 
-    override suspend fun navigateRoute(destination: Point, waypoints: List<Point>): NavigationResult {
+    override suspend fun navigateRoute(destination: Point, waypoints: List<Point>, routePreference: String): NavigationResult {
         require(waypoints.size <= 2) { "Pleos 내비 경유지는 한 구간에 최대 2개까지 보낼 수 있습니다." }
         val startedAtElapsedMs = SystemClock.elapsedRealtime()
         return routeLock.withLock {
@@ -81,7 +81,7 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
                         pending.elapsedMs(),
                     )
                 withContext(Dispatchers.Main.immediate) {
-                    val destinationInfo = destination.toRouteInfo()
+                    val destinationInfo = destination.toRouteInfo(routePreference)
                     if (waypoints.isEmpty()) {
                         connected.helper.requestRoute(destinationInfo)
                     } else {
@@ -127,14 +127,18 @@ private class PleosNavigationPort(context: Context) : NavigationPort {
         }
     }
 
-    private fun Point.toRouteInfo() = RouteInfo(
+    private fun Point.toRouteInfo(routePreference: String) = RouteInfo(
         latitude = lat,
         longitude = lon,
         poiName = label,
         poiId = "",
         address = label,
         poiSubId = "0",
-        routeOption = RouteOption.RECOMMENDED,
+        routeOption = when (routePreference) {
+            "FREE" -> RouteOption.FREE
+            "TIME" -> RouteOption.SHORT_TIME
+            else -> RouteOption.RECOMMENDED
+        },
     )
 
     private suspend fun connect(): Connection? {

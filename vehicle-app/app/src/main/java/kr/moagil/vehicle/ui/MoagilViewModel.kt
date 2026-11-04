@@ -403,7 +403,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             }
         } else null
         val result = try {
-            navigation.navigateRoute(destination, waypoints)
+            navigation.navigateRoute(destination, waypoints, session.routePreference)
         } finally {
             elapsedTicker?.cancel()
         }

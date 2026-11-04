@@ -41,7 +41,7 @@ COLLECTING ── plan ──> PLANNED ── start ──> ACTIVE ── all st
 
 ## 경로 계산
 
-모든 순서는 Python `itertools.permutations`로 생성합니다. 우선 승객을 지정하면 첫 번째 순서로 고정합니다. Kakao Mobility 다중 출발지 API에서 실시간 시간·거리 행렬을 받아 순서를 비교하고, 다중 출발지 응답에서 누락된 구간은 Kakao 전체 길찾기 API로 보완합니다. 선택 경로의 상세 형상과 구간 시간을 조회하고, 행렬·최적 순서·선택 경로를 route snapshot에 저장합니다. Kakao API 키가 없거나 요청이 실패하면 다른 경로 제공자로 전환하지 않고 오류를 반환합니다. Kakao Mobility에는 API 사용 한도와 초과 요금이 적용될 수 있으며 통행료는 `null`입니다.
+모든 순서는 Python `itertools.permutations`로 생성합니다. 우선 승객을 지정하면 첫 번째 순서로 고정합니다. Kakao Mobility 다중 출발지 API에서 실시간 시간·거리 행렬을 받아 순서를 비교하고, 다중 출발지 응답에서 누락된 구간은 Kakao 전체 길찾기 API로 보완합니다. 무료 도로를 고르면 행렬과 선택 경로 요청에 통행료 회피 옵션을 보내고, Kakao가 통행료 0원을 확인해 주지 않으면 경로 저장을 거부합니다. 선택 경로의 상세 형상과 구간 시간을 조회하고 route snapshot에 저장합니다. Kakao API 키가 없거나 요청이 실패하면 다른 경로 제공자로 전환하지 않고 오류를 반환합니다. Kakao Mobility에는 API 사용 한도와 초과 요금이 적용될 수 있습니다. Pleos NaviHelper에는 각 구간 요청마다 `FREE` 또는 `SHORT_TIME` 옵션을 전달합니다.
 
 ## 사용자 안전
 
