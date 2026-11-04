@@ -700,7 +700,7 @@ private fun RoutePreferenceToggle(selected: String, enabled: Boolean, onSelect: 
         Modifier.fillMaxWidth().background(Color(0xFFDDE2F5), RoundedCornerShape(10.dp)).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        listOf("FREE" to "무료", "TIME" to "유료").forEach { (value, label) ->
+        listOf("FREE" to "무료 우선", "TIME" to "시간 우선").forEach { (value, label) ->
             val isSelected = selected == value
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
