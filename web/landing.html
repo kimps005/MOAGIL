@@ -44,30 +44,25 @@
                 <a class="button-primary" href="/app">서비스 시작하기 <span aria-hidden="true">→</span></a>
               </div>
 
-              <div class="scene-visual" role="group" aria-label="여러 사람의 목적지가 모이는 모아길 화면 예시">
+              <div class="scene-visual" role="img" aria-label="지도에 함께 모인 세 개의 목적지">
                 <div class="visual-board gather-board">
-                  <div class="visual-top">
-                    <span class="visual-brand"><span class="visual-mark"><img src="/moagil-logo.png?v=20261103" alt="" width="30" height="30"></span>모아길</span>
-                    <span class="visual-count">목적지 3곳</span>
-                  </div>
                   <div class="gather-map">
-                    <svg viewBox="0 0 540 330" aria-hidden="true">
-                      <path class="street" d="M-20 55C65 82 90 30 158 56s89 63 151 40 104-55 165-28 51 41 88 23"/>
-                      <path class="street" d="M-24 157c70 18 88-32 158-10s91 74 160 43 107-34 150-6 61 55 105 28"/>
-                      <path class="street" d="M-20 286c66-40 105 26 168 2s84-67 151-42 99 47 142 21 68-54 120-34"/>
-                      <path class="street street-cross" d="M94-18c25 65 40 100 22 158s-28 115 1 208"/>
-                      <path class="street street-cross" d="M275-16c-27 61-17 106 5 165s26 111 6 207"/>
-                      <path class="street street-cross" d="M440-18c-35 75-31 121-4 175s20 113-19 208"/>
-                      <circle class="gather-point" cx="152" cy="119" r="8"/>
-                      <circle class="gather-point" cx="320" cy="200" r="8"/>
-                      <circle class="gather-point" cx="423" cy="93" r="8"/>
+                    <svg viewBox="0 0 640 440" aria-hidden="true">
+                      <path class="street" d="M-30 74C58 112 112 38 205 78s108 91 194 55 132-72 219-34 61 55 94 38"/>
+                      <path class="street" d="M-28 211c74 26 112-45 196-17s112 94 197 57 129-43 180-8 80 63 125 36"/>
+                      <path class="street" d="M-34 374c83-50 128 33 211 4s103-86 186-52 121 58 174 25 82-67 133-40"/>
+                      <path class="street street-cross" d="M113-24c30 83 48 124 26 196s-34 143 1 294"/>
+                      <path class="street street-cross" d="M328-22c-34 77-21 132 6 206s32 137 7 280"/>
+                      <path class="street street-cross" d="M535-24c-43 94-38 150-5 218s25 140-23 290"/>
+                      <path class="gather-link" d="M174 132C241 176 280 234 340 238s111-60 184-67"/>
+                      <circle class="gather-point" cx="174" cy="132" r="12"/>
+                      <circle class="gather-point" cx="340" cy="238" r="12"/>
+                      <circle class="gather-point" cx="524" cy="171" r="12"/>
                     </svg>
-                    <div class="gather-label gather-label-one"><i>01</i>목적지 등록</div>
-                    <div class="gather-label gather-label-two"><i>02</i>목적지 등록</div>
-                    <div class="gather-label gather-label-three"><i>03</i>목적지 등록</div>
-                    <div class="gather-summary"><span class="gather-summary-mark" aria-hidden="true">M</span><span><small>함께 가는 길</small><strong>목적지가 모였어요</strong></span><b>3</b></div>
+                    <span class="destination-pin pin-one" aria-hidden="true"><svg viewBox="0 0 48 58"><path d="M24 2C11.8 2 2 11.8 2 24c0 16 22 32 22 32s22-16 22-32C46 11.8 36.2 2 24 2Z"/><circle cx="24" cy="23" r="8"/></svg></span>
+                    <span class="destination-pin pin-two" aria-hidden="true"><svg viewBox="0 0 48 58"><path d="M24 2C11.8 2 2 11.8 2 24c0 16 22 32 22 32s22-16 22-32C46 11.8 36.2 2 24 2Z"/><circle cx="24" cy="23" r="8"/></svg></span>
+                    <span class="destination-pin pin-three" aria-hidden="true"><svg viewBox="0 0 48 58"><path d="M24 2C11.8 2 2 11.8 2 24c0 16 22 32 22 32s22-16 22-32C46 11.8 36.2 2 24 2Z"/><circle cx="24" cy="23" r="8"/></svg></span>
                   </div>
-                  <div class="visual-bottom"><span>각자 내릴 곳을 등록하면</span><strong>함께 이동할 준비 끝</strong></div>
                 </div>
               </div>
             </div>
@@ -81,31 +76,22 @@
                 <p class="scene-description">동승자는 QR을 열어 이름과 목적지를 등록합니다.</p>
               </div>
 
-              <div class="scene-visual phone-visual" role="group" aria-label="동승자가 휴대폰에서 목적지를 등록하는 화면 예시">
-                <div class="phone-callout phone-callout-left"><span>01</span><div>QR을 열고<br><strong>이동에 참여</strong></div></div>
-                <div class="phone-frame">
-                  <div class="phone-camera" aria-hidden="true"></div>
-                  <div class="phone-status"><span>9:41</span><span>●●● ▰</span></div>
-                  <div class="phone-header">
-                    <span class="phone-brand"><span class="visual-mark"><img src="/moagil-logo.png?v=20261103" alt="" width="24" height="24"></span>모아길</span>
-                    <span class="phone-tag">이동 참여</span>
-                  </div>
-                  <div class="phone-content">
-                    <p class="phone-overline">DESTINATION</p>
-                    <h3>어디에서 내리나요?</h3>
-                    <div class="place-search"><span aria-hidden="true">⌖</span><span>장소나 주소 검색</span><span aria-hidden="true">⌕</span></div>
-                    <div class="phone-map" aria-hidden="true">
-                      <svg viewBox="0 0 280 180">
-                        <path d="M-12 44C45 57 58 24 107 43s72 49 116 23 49-29 77-12M-12 117c48-18 77 20 121 4s56-46 103-25 58 40 84 20M66-12c14 44 18 68 5 102s-4 61 15 102M209-12c-24 43-11 66 9 101s18 61-8 101"/>
-                      </svg>
-                      <span class="phone-map-pin"><i></i></span>
-                      <span class="phone-map-place">선택한 위치</span>
-                    </div>
-                    <div class="phone-destination"><span>내 목적지</span><strong>지도에서 위치를 선택했어요</strong><i>✓</i></div>
-                    <div class="phone-submit">목적지 등록 <span aria-hidden="true">→</span></div>
-                  </div>
+              <div class="scene-visual join-visual" role="img" aria-label="QR 코드를 스캔해 지도에 목적지를 등록하는 과정">
+                <div class="join-card join-qr-card" aria-hidden="true">
+                  <svg class="qr-symbol" viewBox="0 0 126 126" shape-rendering="crispEdges">
+                    <rect x="4" y="4" width="38" height="38" rx="3"/><rect class="qr-cut" x="11" y="11" width="24" height="24" rx="1"/><rect x="17" y="17" width="12" height="12"/>
+                    <rect x="84" y="4" width="38" height="38" rx="3"/><rect class="qr-cut" x="91" y="11" width="24" height="24" rx="1"/><rect x="97" y="17" width="12" height="12"/>
+                    <rect x="4" y="84" width="38" height="38" rx="3"/><rect class="qr-cut" x="11" y="91" width="24" height="24" rx="1"/><rect x="17" y="97" width="12" height="12"/>
+                    <path d="M52 4h9v9h-9zM66 4h9v18h-9zM52 18h9v9h-9zM61 27h14v9H61zM52 42h9v9h-9zM66 42h9v18h-9zM84 47h9v9h-9zM98 47h9v9h-9zM112 47h10v9h-10zM4 52h9v9H4zM18 52h18v9H18zM42 56h9v9h-9zM56 61h9v9h-9zM75 66h9v9h-9zM89 61h9v18h-9zM108 61h9v9h-9zM4 66h18v9H4zM28 66h9v18h-9zM47 75h9v9h-9zM61 80h9v9h-9zM75 84h9v9h-9zM89 84h9v9h-9zM103 80h19v9h-19zM47 94h9v9h-9zM61 94h18v9H61zM84 98h9v9h-9zM98 94h9v18h-9zM112 94h10v9h-10zM52 112h9v10h-9zM66 108h9v14h-9zM80 112h9v10h-9zM108 112h14v10h-14z"/>
+                  </svg>
                 </div>
-                <div class="phone-callout phone-callout-right"><span class="callout-check">✓</span><div><small>참여자 등록</small><strong>목적지가 공유됐어요</strong></div></div>
+                <div class="join-arrow" aria-hidden="true"><svg viewBox="0 0 64 32"><path d="M2 16h54M43 4l13 12-13 12"/></svg></div>
+                <div class="join-card join-map-card" aria-hidden="true">
+                  <svg class="join-map" viewBox="0 0 340 300">
+                    <path d="M-20 42c62 18 77-25 139-3s71 52 130 29 72-37 111-19M-24 140c57 24 94-36 151-9s83 69 144 38 82-24 105-3M-12 254c52-41 98 10 144-14s79-56 126-30 64 35 104 18M75-18c23 56 8 89 31 140s37 89 19 198M230-22c-33 69-8 107 13 159s11 95-19 188"/>
+                  </svg>
+                  <span class="join-map-pin"><svg viewBox="0 0 48 58"><path d="M24 2C11.8 2 2 11.8 2 24c0 16 22 32 22 32s22-16 22-32C46 11.8 36.2 2 24 2Z"/><circle cx="24" cy="23" r="8"/></svg></span>
+                </div>
               </div>
             </div>
           </article>
@@ -118,36 +104,24 @@
                 <p class="scene-description">실제 도로 경로를 비교해 추천 하차 순서를 보여줍니다.</p>
               </div>
 
-              <div class="scene-visual" role="group" aria-label="출발지에서 세 목적지를 연결한 추천 하차 경로 예시">
+              <div class="scene-visual" role="img" aria-label="도로 경로를 따라 하차 순서가 표시된 지도">
                 <div class="visual-board route-board">
-                  <div class="visual-top">
-                    <span class="visual-brand"><span class="visual-mark"><img src="/moagil-logo.png?v=20261103" alt="" width="30" height="30"></span>모아길</span>
-                    <span class="visual-section-label">추천 경로</span>
-                    <span class="visual-count">3곳 모음</span>
-                  </div>
                   <div class="route-map">
-                    <svg viewBox="0 0 540 350" aria-hidden="true">
-                      <path class="street" d="M-20 65C72 48 87 110 168 100S277 28 354 65s89 76 216 39"/>
-                      <path class="street" d="M-20 167c70 23 104-29 172-1s111 81 186 39 111-35 207 14"/>
-                      <path class="street" d="M-12 305c74-48 117-6 187-20s115 35 178 7 108-17 209 29"/>
-                      <path class="street street-cross" d="M96-10c23 68 6 130 32 194s56 102 23 222"/>
-                      <path class="street street-cross" d="M260-10c-28 71 13 128-5 184s-33 121 10 232"/>
-                      <path class="street street-cross" d="M425-10c-41 75-11 138-26 195s25 112-8 216"/>
-                      <path class="route-halo" d="M123 227c44-9 71-45 114-50s70 26 116-19 104-42 127-42"/>
-                      <path class="route-line" d="M123 227c44-9 71-45 114-50s70 26 116-19 104-42 127-42"/>
-                      <circle class="route-point" cx="237" cy="177" r="8"/>
-                      <circle class="route-point" cx="353" cy="158" r="8"/>
-                      <circle class="route-point" cx="480" cy="116" r="8"/>
-                      <circle class="start-ring" cx="123" cy="227" r="18"/>
-                      <circle class="start-point" cx="123" cy="227" r="7"/>
+                    <svg viewBox="0 0 640 440" aria-hidden="true">
+                      <path class="street" d="M-30 68C75 43 101 126 195 112S329 23 418 66s108 91 254 45"/>
+                      <path class="street" d="M-30 209c86 28 127-36 210-4s135 99 225 47 135-42 250 18"/>
+                      <path class="street" d="M-20 378c90-59 145-7 229-25s141 43 216 9 132-21 228 31"/>
+                      <path class="street street-cross" d="M114-15c29 85 7 162 41 241s66 125 26 231"/>
+                      <path class="street street-cross" d="M307-18c-34 89 16 160-6 230s-40 151 12 248"/>
+                      <path class="street street-cross" d="M507-18c-51 93-14 173-33 245s30 140-10 234"/>
+                      <path class="route-halo" d="M112 309c67-14 108-69 172-76s105 38 174-28 124-52 167-58"/>
+                      <path class="route-line" d="M112 309c67-14 108-69 172-76s105 38 174-28 124-52 167-58"/>
+                      <circle class="start-ring" cx="112" cy="309" r="26"/><circle class="start-point" cx="112" cy="309" r="10"/>
                     </svg>
-                    <div class="route-label route-start"><b>출발</b><span>현재 위치</span></div>
-                    <div class="route-label route-stop-one"><b>1</b><span>첫 번째 하차</span></div>
-                    <div class="route-label route-stop-two"><b>2</b><span>두 번째 하차</span></div>
-                    <div class="route-label route-stop-three"><b>3</b><span>마지막 하차</span></div>
-                    <div class="route-card"><span>추천 하차 순서</span><strong>도로 경로를 비교했어요</strong><small>목적지에 맞춰 순서를 확인하세요</small></div>
+                    <span class="route-step route-step-one" aria-hidden="true">1</span>
+                    <span class="route-step route-step-two" aria-hidden="true">2</span>
+                    <span class="route-step route-step-three" aria-hidden="true">3</span>
                   </div>
-                  <div class="visual-bottom"><span>목적지를 함께 모으면</span><strong>이동 준비가 간단해져요</strong></div>
                 </div>
               </div>
             </div>

@@ -47,4 +47,7 @@
   window.addEventListener("scroll", scheduleUpdate, { passive: true });
   window.addEventListener("resize", scheduleUpdate, { passive: true });
   updateScene();
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    document.documentElement.classList.add("story-ready");
+  }));
 })();
