@@ -424,7 +424,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                     javascriptKey = state.kakaoMapJavascriptKey,
                     mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                     assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                    modifier = Modifier.weight(2.2f).fillMaxHeight(),
+                    modifier = Modifier.weight(1.7f).fillMaxHeight(),
                 )
                 if (terminal) {
                     SessionDetailsColumn(
@@ -449,7 +449,7 @@ private fun SessionDashboard(state: DriverUiState, model: MoagilViewModel, onDel
                         javascriptKey = state.kakaoMapJavascriptKey,
                         mapBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
                         assetBaseUrl = BuildConfig.KAKAO_MAP_ORIGIN,
-                        modifier = Modifier.weight(2.2f).fillMaxHeight(),
+                        modifier = Modifier.weight(1.7f).fillMaxHeight(),
                     )
                     if (terminal) {
                         SessionDetailsColumn(session, state, model, credentials?.joinBaseUrl.orEmpty(), credentials?.inviteToken.orEmpty(), onDelete, onFinish, true, Modifier.weight(0.8f).fillMaxHeight())
@@ -510,7 +510,7 @@ private fun LiveStopsPanel(
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("하차 순서", color = Color(0xFF252B3E), fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("하차 순서", color = Color(0xFF252B3E), fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text("${session.passengers.size} / 4", color = Muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
@@ -527,12 +527,12 @@ private fun LiveStopsPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 13.sp)
-                    Text(durationLabel, color = Color(0xFF36457F), fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(durationLabel, color = Color(0xFF36457F), fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 Box(Modifier.width(1.dp).height(40.dp).background(Color(0xFFD8DDF5)))
                 Column(Modifier.weight(1.15f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("도로 경로", color = Color(0xFF616B85), fontSize = 13.sp)
+                    Text("도로 경로", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     RoutePreferenceToggle(
                         selected = session.routePreference,
                         enabled = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
@@ -561,13 +561,6 @@ private fun LiveStopsPanel(
                 Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                if (orderedPeople.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(16.dp)).padding(18.dp)) {
-                            Text("아직 등록된 위치가 없습니다", color = Color(0xFF535E78), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
                 items(orderedPeople, key = { it.id }) { passenger ->
                     val passengerIndex = session.passengers.indexOfFirst { it.id == passenger.id }.coerceAtLeast(0)
                     FriendStopRow(
@@ -706,7 +699,7 @@ private fun RoutePreferenceToggle(selected: String, enabled: Boolean, onSelect: 
                 Text(
                     label,
                     color = if (isSelected) Color.White else Color(0xFF59627B),
-                    fontSize = 13.sp,
+                    fontSize = 17.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
                 )
@@ -721,27 +714,13 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
         if (joinBaseUrl.isBlank() || inviteToken.isBlank()) "" else "${joinBaseUrl.trimEnd('/')}/join/${session.sessionId}?invite=$inviteToken"
     }
     val image = remember(url) { url.takeIf(String::isNotBlank)?.let(::renderQr) }
-    Column(
-        Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("동승자 초대", color = Color(0xFF252B3E), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text("QR을 스캔해 하차 위치를 등록하세요", color = Muted, fontSize = 14.sp)
-        }
-        if (image != null) {
-            Image(
-                image.asImageBitmap(),
-                contentDescription = "친구 초대 QR",
-                modifier = Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
-                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(9.dp),
-            )
-        } else {
-            Box(Modifier.size(140.dp).background(Color.White, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                Text("QR 준비 중", color = Muted, fontSize = 15.sp)
-            }
-        }
+    if (image != null) {
+        Image(
+            image.asImageBitmap(),
+            contentDescription = "친구 초대 QR",
+            modifier = Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(9.dp),
+        )
     }
 }
 
