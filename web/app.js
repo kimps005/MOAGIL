@@ -23,6 +23,7 @@ const state = {
   passengerProgress: null,
   passengerAccount: null,
   editingPassenger: false,
+  passengerNameInput: '',
   searchQuery: '',
   searchResults: [],
   searchError: '',
@@ -35,14 +36,9 @@ const state = {
   mapProvider: 'kakao',
   mapErrorMessage: '',
   routingProvider: 'kakao',
-  avatarEmoji: '🚗',
 };
 
-const { avatarEmojis: JOIN_EMOJIS, passengerEmoji, escapeHtml: esc } = window.MOAGILUtils;
-const passengerName = displayName => {
-  const emoji = passengerEmoji(displayName);
-  return emoji ? String(displayName).slice(emoji.length).trim() : String(displayName || '');
-};
+const { passengerName, escapeHtml: esc } = window.MOAGILUtils;
 
 const fmtNumber = value => new Intl.NumberFormat('ko-KR').format(value);
 const shortId = value => String(value || '').slice(0, 8).toUpperCase();
@@ -183,7 +179,7 @@ function mapLoadErrorMarkup() {
 function passengerRows() {
   const people = state.session?.passengers || [];
   if (!people.length) return '<div class="empty-list">아직 등록된 동승자가 없습니다.<br>QR을 공유하고 각자의 하차 위치를 받아보세요.</div>';
-  return '<div class="passenger-list">' + people.map((person, index) => '<div class="passenger-row"><div class="avatar">' + esc(passengerEmoji(person.displayName) || String.fromCharCode(65 + index)) + '</div><div class="passenger-main"><div class="passenger-name">' + esc(passengerName(person.displayName)) + '</div><div class="passenger-point">' + esc(person.point.label || '시연 위치') + '</div></div>' + (['COLLECTING', 'PLANNED'].includes(state.session.state) ? '<button class="icon-btn" data-action="remove" data-id="' + esc(person.id) + '" aria-label="' + esc(passengerName(person.displayName)) + ' 삭제">×</button>' : '') + '</div>').join('') + '</div>';
+  return '<div class="passenger-list">' + people.map((person, index) => '<div class="passenger-row"><span class="avatar avatar-tone-' + (index + 1) + '" aria-hidden="true"></span><div class="passenger-main"><div class="passenger-name">' + esc(passengerName(person.displayName)) + '</div><div class="passenger-point">' + esc(person.point.label || '시연 위치') + '</div></div>' + (['COLLECTING', 'PLANNED'].includes(state.session.state) ? '<button class="icon-btn" data-action="remove" data-id="' + esc(person.id) + '" aria-label="' + esc(passengerName(person.displayName)) + ' 삭제">×</button>' : '') + '</div>').join('') + '</div>';
 }
 
 function routeRows() {
@@ -230,7 +226,7 @@ function driverMarkup() {
     ? `<div class='active-card'><div class='safety-banner ${state.navConfirmed ? 'ready' : ''}'>${esc(state.navMessage || '○ 다음 하차 목적지 안내를 확인해 주세요.')}</div><div class='active-destination'><small>다음 목적지 · ${esc(destination.type)}</small><strong>${esc(destination.label)}</strong></div><div class='route-actions'>${currentPassenger ? `<button class='btn primary' data-action='complete-stop' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>하차 완료</button>` : `<button class='btn primary' data-action='complete-trip' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>${finalArrived ? '최종 목적지 도착' : '이동 마무리'}</button>`}<button class='btn warn' data-action='end'>이동 취소</button></div></div>`
     : `<div class='route-actions'><button class='btn' data-action='plan' ${state.autoPlanning ? 'disabled' : ''}>${session.routeSnapshot ? '순서 다시 계산' : '다시 계산'}</button>${session.state === 'PLANNED' ? `<button class='btn primary' data-action='start' ${!state.parked ? 'disabled' : ''}>${state.parked ? '이 순서로 안내 시작' : '정차 확인 후 안내 시작'}</button>` : ''}</div>`;
   const mapCaption = session.routeSnapshot?.geometry?.length ? routeProviderLabel : state.autoPlanning ? '추천 순서 계산 중' : '등록 위치를 기다리는 중';
-  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/app'><span class='brand-mark' aria-hidden='true'><img src='/moagil-logo.png?v=20261103' alt=''></span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot orange'></i>다음 하차</span><span class='legend-item'><i class='legend-dot'></i>등록 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
+  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/app'><span class='brand-mark' aria-hidden='true'><img src='/moagil-logo.png?v=20261103' alt=''></span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot passengers'></i>동승자 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
 }
 
 function placeParts(feature) {
@@ -320,7 +316,7 @@ function selectSearchResult(index) {
 
 function passengerProgressMarkup() {
   if (!state.passengerProgress) {
-    return '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><h1>내 이동 정보를 불러오지 못했어요</h1><p>' + esc(state.joinError || '인터넷 연결을 확인해 주세요.') + '</p></section><section class="phone-card passenger-progress-card"><button class="btn primary" data-action="refresh-passenger">다시 불러오기</button></section></main>';
+    return '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header><section class="passenger-heading"><h1>내 이동 정보를 불러오지 못했어요</h1><p>' + esc(state.joinError || '인터넷 연결을 확인해 주세요.') + '</p></section><section class="phone-card passenger-progress-card"><button class="btn primary" data-action="refresh-passenger">다시 불러오기</button></section></main>';
   }
 
   const progress = state.passengerProgress;
@@ -348,26 +344,25 @@ function passengerProgressMarkup() {
     ? '<p class="passenger-progress-note">' + (progress.routeNote ? esc(progress.routeNote) + '. ' : '') + (progress.estimatedTimeApproximate ? '구간별 시간은 경로 전체 시간과 거리 비율로 나눈 참고값입니다. ' : '') + '현재 차량 위치와 실제 교통에 따라 달라질 수 있어요.</p>' : '';
   const error = state.joinError ? '<p class="phone-error">' + esc(state.joinError) + '</p>' : '';
 
-  return '<main class="passenger-shell passenger-progress-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><div class="eyebrow">동승자 전용</div><h1>내 이동 정보</h1><p>운전자 화면이 바뀌면 여기도 자동으로 업데이트돼요.</p></section><section class="phone-card passenger-progress-card"><div class="passenger-progress-status"><span class="success-mark">' + esc(passengerEmoji(person.displayName) || '✓') + '</span><div><h2>' + esc(copy[0]) + '</h2><p>' + esc(copy[1]) + '</p></div></div><div class="passenger-progress-identity"><strong>' + esc(person.displayName) + '</strong><span>' + esc(person.point?.label || '등록한 목적지') + '</span></div><div class="passenger-progress-metrics"><div class="passenger-progress-metric"><small>내 하차 순서</small><strong>' + esc(stopLabel) + '</strong></div><div class="passenger-progress-metric"><small>' + esc(routeTimeCaption) + '</small><strong>' + esc(routeTimeLabel) + '</strong></div></div>' + etaNote + error + '<div class="passenger-progress-actions">' + editButton + '<button class="btn" data-action="refresh-passenger">상태 새로고침</button></div></section></main>';
+  return '<main class="passenger-shell passenger-progress-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header><section class="passenger-heading"><div class="eyebrow">동승자 전용</div><h1>내 이동 정보</h1><p>운전자 화면이 바뀌면 여기도 자동으로 업데이트돼요.</p></section><section class="phone-card passenger-progress-card"><div class="passenger-progress-status"><span class="success-mark" aria-hidden="true"></span><div><h2>' + esc(copy[0]) + '</h2><p>' + esc(copy[1]) + '</p></div></div><div class="passenger-progress-identity"><strong>' + esc(passengerName(person.displayName)) + '</strong><span>' + esc(person.point?.label || '등록한 목적지') + '</span></div><div class="passenger-progress-metrics"><div class="passenger-progress-metric"><small>내 하차 순서</small><strong>' + esc(stopLabel) + '</strong></div><div class="passenger-progress-metric"><small>' + esc(routeTimeCaption) + '</small><strong>' + esc(routeTimeLabel) + '</strong></div></div>' + etaNote + error + '<div class="passenger-progress-actions">' + editButton + '<button class="btn" data-action="refresh-passenger">상태 새로고침</button></div></section></main>';
 }
 
 function joinMarkup() {
   document.body.classList.add('passenger-body');
   if (state.joined && !state.editingPassenger) return passengerProgressMarkup();
   const error = state.joinError || '';
-  const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">MOAGIL</span></a></header>'
-    + '<section class="passenger-heading"><h1>' + (state.editingPassenger ? '내 목적지 수정' : '목적지 입력') + '</h1>' + (state.editingPassenger ? '<p>이동이 시작되기 전까지 수정할 수 있어요.</p>' : '') + '</section>';
+  const heading = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header>'
+    + '<section class="passenger-heading"><h1>' + (state.editingPassenger ? '내 목적지 수정' : '목적지 입력') + '</h1><p>' + (state.editingPassenger ? '이동이 시작되기 전까지 수정할 수 있어요.' : '이름과 내릴 곳을 등록해 주세요.') + '</p></section>';
   if (!state.joinInfo && !state.passengerProgress) return heading + '<div class="loading-card">초대 확인 중…</div></main>';
   const searchResults = state.searchResults.map((feature, index) => {
   const place = placeParts(feature);
     return '<button type="button" class="place-result" role="option" data-action="select-place" data-index="' + index + '"><span>' + esc(place.title) + '</span>' + (place.context ? '<small>' + esc(place.context) + '</small>' : '') + '</button>';
   }).join('');
   const searchMessage = state.searching ? '검색 중…' : state.searchError;
-  const emojiOptions = JOIN_EMOJIS.map(emoji => '<button type="button" class="emoji-option' + (emoji === state.avatarEmoji ? ' selected' : '') + '" data-action="select-emoji" data-emoji="' + emoji + '" aria-label="이모지 ' + emoji + '" aria-pressed="' + (emoji === state.avatarEmoji) + '">' + emoji + '</button>').join('');
   const savedDisplayName = state.editingPassenger ? state.passengerProgress?.passenger?.displayName || '' : '';
   const identityField = state.editingPassenger
-    ? '<div class="passenger-edit-identity">' + esc(savedDisplayName) + '</div>'
-    : '<div class="avatar-picker" role="group" aria-label="지도에 표시할 이모지">' + emojiOptions + '</div><input id="display-name" name="displayName" maxlength="18" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required>';
+    ? '<div class="passenger-edit-identity">' + esc(passengerName(savedDisplayName)) + '</div>'
+    : '<input id="display-name" name="displayName" maxlength="20" value="' + esc(state.passengerNameInput) + '" placeholder="이름이나 별명을 입력하세요." autocomplete="nickname" aria-label="이름이나 별명을 입력하세요" required>';
   const cancelEdit = state.editingPassenger ? '<button type="button" class="tiny-button passenger-cancel-edit" data-action="cancel-passenger-edit">수정 취소</button>' : '';
   return heading + '<form id="passenger-form"><section class="phone-card destination-card">' + identityField + '<div class="map-picker"><div class="map-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 5 5"></path></svg><input id="place-search" type="search" value="' + esc(state.searchQuery) + '" placeholder="장소 검색" aria-label="목적지 검색"><button id="search-place-button" type="button" class="search-place-button" data-action="search-place" aria-label="검색" ' + (state.searching ? 'disabled' : '') + '>검색</button></div><div id="place-results" class="place-results" role="listbox" aria-live="polite"' + (!searchResults && !searchMessage ? ' hidden' : '') + '>' + (searchResults || (searchMessage ? '<div class="place-search-message">' + esc(searchMessage) + '</div>' : '')) + '</div><div id="pin-map" class="pin-map" role="application" aria-label="목적지를 찾고 핀을 조정하는 지도" tabindex="0"></div></div><div class="phone-error" id="phone-error">' + esc(error) + '</div>' + cancelEdit + '</section><div class="phone-submit-bar"><button class="phone-submit" type="submit" ' + (state.saving ? 'disabled' : '') + '>' + (state.editingPassenger ? '수정 저장' : '목적지 등록') + '</button></div></form></main>';
 }
@@ -534,15 +529,6 @@ async function handleAction(button) {
       render();
       return;
     }
-    if (action === 'select-emoji') {
-      state.avatarEmoji = JOIN_EMOJIS.includes(button.dataset.emoji) ? button.dataset.emoji : JOIN_EMOJIS[0];
-      app.querySelectorAll('.emoji-option').forEach(option => {
-        const selected = option.dataset.emoji === state.avatarEmoji;
-        option.classList.toggle('selected', selected);
-        option.setAttribute('aria-pressed', String(selected));
-      });
-      return;
-    }
     if (action === 'search-place') return await searchPlaces();
     if (action === 'select-place') return selectSearchResult(Number(button.dataset.index));
     if (action === 'new') return await newSession(false);
@@ -557,7 +543,6 @@ async function handleAction(button) {
     if (action === 'edit-passenger') {
       if (!state.passengerProgress?.canEdit) return toast('이동이 시작되어 목적지를 수정할 수 없습니다.');
       const person = state.passengerProgress.passenger;
-      state.avatarEmoji = passengerEmoji(person.displayName) || JOIN_EMOJIS[0];
       state.pin = { ...person.point };
       state.searchQuery = person.point.label || '';
       state.searchResults = [];
@@ -759,7 +744,7 @@ async function initializePassenger() {
     state.joinInfo = { state: 'ERROR', remaining: 0 };
     render();
     const content = byId('app');
-    if (content) content.innerHTML = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">MOAGIL</span></a></header><section class="passenger-heading"><h1>초대 링크를 확인할 수 없어요.</h1><p>' + esc(error.message) + '</p></section></main>';
+    if (content) content.innerHTML = '<main class="passenger-shell"><header class="passenger-top"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""></span><span class="brand-name">모아길</span></a></header><section class="passenger-heading"><h1>초대 링크를 확인할 수 없어요.</h1><p>' + esc(error.message) + '</p></section></main>';
     return;
   }
   render();
@@ -769,7 +754,7 @@ async function submitPassenger(event) {
   event.preventDefault();
   const form = event.target;
   const nickname = state.editingPassenger ? '' : form.elements.displayName.value.trim();
-  const name = state.editingPassenger ? state.passengerProgress.passenger.displayName : state.avatarEmoji + ' ' + nickname;
+  const name = state.editingPassenger ? passengerName(state.passengerProgress.passenger.displayName) : nickname;
   const errorNode = byId('phone-error');
   if (!state.editingPassenger && (!nickname || Array.from(name).length > 20)) { if (errorNode) errorNode.textContent = '이름을 확인해 주세요.'; return; }
   state.pin.label = state.pin.label || '선택한 위치';
@@ -786,6 +771,7 @@ async function submitPassenger(event) {
       );
       state.passengerProgress = updated;
       state.joinedName = name;
+      state.passengerNameInput = name;
       state.joinError = '';
       state.editingPassenger = false;
       state.saving = false;
@@ -804,6 +790,7 @@ async function submitPassenger(event) {
     sessionStorage.removeItem(keyStore); sessionStorage.removeItem(signatureStore);
     state.passengerAccount = participantAccount;
     state.joined = true; state.joinedName = name; state.saving = false;
+    state.passengerNameInput = name;
     try {
       await refreshPassengerProgress(true);
     } catch (error) {
@@ -868,7 +855,9 @@ app.addEventListener('change', event => {
 });
 
 app.addEventListener('input', event => {
-  if (event.target.id === 'place-search') {
+  if (event.target.id === 'display-name') {
+    state.passengerNameInput = event.target.value;
+  } else if (event.target.id === 'place-search') {
     state.searchQuery = event.target.value;
     state.searchResults = [];
     state.searchError = '';

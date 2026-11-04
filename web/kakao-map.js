@@ -1,6 +1,6 @@
 /* Kakao Maps JavaScript API adapter for the web maps. */
 (() => {
-  const { passengerEmoji, escapeHtml } = window.MOAGILUtils;
+  const { escapeHtml, passengerName } = window.MOAGILUtils;
 
   function latLng(point) {
     return new kakao.maps.LatLng(Number(point.lat), Number(point.lon));
@@ -58,6 +58,7 @@
     const bounds = [];
     const passengers = session.passengers || [];
     const passengerById = new Map(passengers.map(person => [person.id, person]));
+    const passengerPositionById = new Map(passengers.map((person, index) => [person.id, index]));
     const order = session.selectedOrder || session.routeSnapshot?.order || passengers.map(person => person.id);
 
     const startOverlay = addLabel(map, start, '출발', 'start', '출발 위치');
@@ -65,15 +66,16 @@
       overlays.push(startOverlay);
       bounds.push(latLng(start));
     }
-    order.forEach((id, index) => {
+    order.forEach(id => {
       const person = passengerById.get(id);
       if (person) {
+        const passengerColor = (passengerPositionById.get(person.id) || 0) + 1;
         addDriverPoint(
           map,
           person.point,
-          passengerEmoji(person.displayName) || String(index + 1),
-          index === 0 ? 'next' : 'stop',
-          person.displayName || '하차 지점',
+          '',
+          'passenger-' + passengerColor,
+          passengerName(person.displayName) || '하차 지점',
           overlays,
           bounds,
         );

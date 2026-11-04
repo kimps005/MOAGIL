@@ -104,6 +104,12 @@ private val Border = Color(0xFFE5E8F0)
 private val Muted = Color(0xFF737B8D)
 private val Success = Color(0xFF2B806B)
 private val Alert = Color(0xFFB95765)
+private val PassengerTones = listOf(
+    Color(0xFFF3C3C6),
+    Color(0xFFC6D5F7),
+    Color(0xFFC3E4D4),
+    Color(0xFFF3E4AD),
+)
 private val Scheme = lightColorScheme(
     primary = Mint,
     onPrimary = Color.White,
@@ -172,7 +178,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     pendingDelete?.let { passenger ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("${passenger.displayName} 참가를 삭제할까요?") },
+            title = { Text("${passengerName(passenger.displayName)} 참가를 삭제할까요?") },
             text = { Text("모집 중인 참가자만 삭제할 수 있으며, 경로 계산은 다시 해야 합니다.") },
             confirmButton = { TextButton(onClick = { pendingDelete = null; model.removePassenger(passenger) }) { Text("삭제") } },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("취소") } },
@@ -573,9 +579,11 @@ private fun LiveStopsPanel(
                     }
                 }
                 items(orderedPeople, key = { it.id }) { passenger ->
+                    val passengerIndex = session.passengers.indexOfFirst { it.id == passenger.id }.coerceAtLeast(0)
                     FriendStopRow(
                         passenger = passenger,
                         stopNumber = orderedPeople.indexOf(passenger) + 1,
+                        passengerColor = PassengerTones[passengerIndex % PassengerTones.size],
                         priority = session.priorityPassengerId == passenger.id,
                         canPin = !state.busy && session.state in setOf("COLLECTING", "PLANNED"),
                         onPin = { model.setPriority(if (session.priorityPassengerId == passenger.id) null else passenger.id) },
@@ -616,6 +624,7 @@ private fun LiveStopsPanel(
 private fun FriendStopRow(
     passenger: Passenger,
     stopNumber: Int,
+    passengerColor: Color,
     priority: Boolean,
     canPin: Boolean,
     onPin: () -> Unit,
@@ -629,8 +638,13 @@ private fun FriendStopRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(48.dp).background(if (priority) Mint else Color(0xFFE7EAFF), CircleShape), contentAlignment = Alignment.Center) {
-            Text("$stopNumber", color = if (priority) Color.White else Mint, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Box(
+            Modifier.size(48.dp)
+                .background(passengerColor, CircleShape)
+                .border(if (priority) 2.dp else 1.dp, if (priority) Color(0xFF2D52CA) else Color.White, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$stopNumber", color = Color(0xFF34425F), fontWeight = FontWeight.Bold, fontSize = 22.sp)
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -653,7 +667,7 @@ private fun FriendStopRow(
             modifier = Modifier.size(48.dp).background(if (priority) Color(0xFFE3E7FF) else Color.Transparent, RoundedCornerShape(15.dp))
                 .semantics { contentDescription = if (priority) "우선 하차 고정 해제" else "먼저 하차하도록 고정" },
         ) {
-            Text("📌", fontSize = 22.sp)
+            Box(Modifier.size(18.dp).background(passengerColor, CircleShape).border(2.dp, Color.White, CircleShape))
         }
     }
 }
@@ -698,7 +712,7 @@ private val passengerAvatarEmojis = setOf(
 
 private fun passengerEmoji(displayName: String): String? = passengerAvatarEmojis.firstOrNull { displayName.startsWith("$it ") }
 
-private fun passengerName(displayName: String): String =
+fun passengerName(displayName: String): String =
     passengerEmoji(displayName)?.let { displayName.removePrefix("$it ").trim() } ?: displayName
 
 @Composable

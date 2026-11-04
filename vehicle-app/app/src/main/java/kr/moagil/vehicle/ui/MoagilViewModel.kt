@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kr.moagil.vehicle.passengerName
 import kr.moagil.vehicle.data.ApiException
 import kr.moagil.vehicle.data.DriverCredentials
 import kr.moagil.vehicle.data.DriverSession
@@ -283,7 +284,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         ensureParked()
         val credentials = requireCredentials()
         val updated = MoagilApi(credentials.apiBaseUrl).removePassenger(credentials, requireSession(), passenger.id)
-        acceptSession(updated, "${passenger.displayName} 참가를 삭제했습니다.")
+        acceptSession(updated, "${passengerName(passenger.displayName)} 참가를 삭제했습니다.")
     }
 
     fun disconnectLocal() {
