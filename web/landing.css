@@ -474,6 +474,11 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
 
 /* Clean, oversized illustrations keep the service story readable at a glance. */
 .page-shell { width: min(1320px, calc(100% - 64px)); }
+.site-header.page-shell {
+  width: 100%;
+  margin-inline: 0;
+  padding-inline: max(32px, calc((100vw - 1320px) / 2));
+}
 .scene-layout { grid-template-columns: minmax(0, .84fr) minmax(0, 1.16fr); gap: clamp(28px, 4.3vw, 62px); }
 .scene-visual { width: 100%; }
 .has-scroll-story .story-progress { left: max(8px, calc((100vw - 1320px) / 2 - 42px)); }
@@ -554,6 +559,7 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
 
 @media (max-width: 1000px) {
   .page-shell { width: min(820px, calc(100% - 48px)); }
+  .site-header.page-shell { padding-inline: max(24px, calc((100vw - 820px) / 2)); }
   .scene-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .visual-board { max-width: none; }
   .join-visual { width: 100%; max-width: 720px; height: clamp(290px, 42svh, 390px); grid-template-columns: minmax(130px, .78fr) 54px minmax(0, 1.22fr); gap: 13px; }
@@ -562,6 +568,7 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
 }
 @media (max-width: 620px) {
   .page-shell { width: calc(100% - 36px); }
+  .site-header.page-shell { padding-inline: 18px; }
   .scene-layout { gap: 13px; }
   .visual-board { border-radius: 22px; }
   .gather-map, .route-map { height: clamp(280px, 40svh, 360px); }
@@ -577,6 +584,7 @@ html.has-scroll-story:not(.story-ready) .story-scene { transition: none; }
   .route-step-three { left: 92%; top: 36%; }
 }
 @media (max-width: 360px) {
+  .site-header.page-shell { padding-inline: 14px; }
   .join-visual { grid-template-columns: minmax(82px, .78fr) 24px minmax(0, 1.22fr); gap: 6px; }
   .route-step { width: 32px; height: 32px; font-size: 12px; }
 }

@@ -12,7 +12,6 @@
   let activeIndex = -1;
   let frame = 0;
   let inputLocked = false;
-  let inputLockTimer = 0;
   let touchStart = null;
 
   function isShortViewport() {
@@ -87,9 +86,9 @@
   }
 
   function lockInput() {
+    if (inputLocked) return;
     inputLocked = true;
-    window.clearTimeout(inputLockTimer);
-    inputLockTimer = window.setTimeout(() => {
+    window.setTimeout(() => {
       inputLocked = false;
     }, 480);
   }
@@ -102,10 +101,7 @@
     if (nextIndex < 0 || nextIndex >= scenes.length) return;
 
     event.preventDefault();
-    if (inputLocked) {
-      lockInput();
-      return;
-    }
+    if (inputLocked) return;
 
     scrollToScene(nextIndex);
     lockInput();
@@ -145,7 +141,6 @@
     if (Math.abs(deltaY) < 44 || Math.abs(deltaY) <= Math.abs(deltaX) || !canMoveBySwipe(deltaY)) return;
 
     if (inputLocked) {
-      lockInput();
       return;
     }
 
