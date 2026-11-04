@@ -530,7 +530,7 @@ private fun LiveStopsPanel(
                     Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(durationLabel, color = Color(0xFF36457F), fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
-                Box(Modifier.width(1.dp).height(40.dp).background(Color(0xFFD8DDF5)))
+                Box(Modifier.width(1.dp).height(56.dp).background(Color(0xFFD8DDF5)))
                 Column(Modifier.weight(1.15f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("도로 경로", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     RoutePreferenceToggle(
@@ -715,12 +715,14 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
     }
     val image = remember(url) { url.takeIf(String::isNotBlank)?.let(::renderQr) }
     if (image != null) {
-        Image(
-            image.asImageBitmap(),
-            contentDescription = "친구 초대 QR",
-            modifier = Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
-                .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(9.dp),
-        )
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Image(
+                image.asImageBitmap(),
+                contentDescription = "친구 초대 QR",
+                modifier = Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White)
+                    .border(1.dp, Border, RoundedCornerShape(16.dp)).padding(9.dp),
+            )
+        }
     }
 }
 
