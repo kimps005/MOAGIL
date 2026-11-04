@@ -324,6 +324,28 @@ body.passenger-body {
 .passenger-progress-status .success-mark { background: var(--passenger-blue-pale); box-shadow: 0 7px 18px rgba(45,82,202,.1); }
 .passenger-progress-status .success-mark::after { width: 15px; height: 15px; border-radius: 50%; content: ""; background: var(--passenger-blue); }
 
+.order-update-overlay {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(244,245,249,.82);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+.order-update-content { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.order-update-content strong { color: #28314a; font-size: 16px; font-weight: 750; }
+.order-update-content > span { color: #737b8d; font-size: 12px; }
+.moagil-loading-mark { position: relative; width: 104px; height: 104px; margin-bottom: 5px; overflow: hidden; border: 1px solid rgba(255,255,255,.95); border-radius: 50%; background: #fff; box-shadow: 0 12px 32px rgba(62,78,147,.15); }
+.moagil-loading-mark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: translate(2px,-1px); }
+.moagil-loading-dot { position: absolute; top: 0; left: 0; width: 12px; height: 12px; border: 2px solid #fff; border-radius: 50%; background: #536de6; box-shadow: 0 2px 7px rgba(47,65,160,.28); offset-path: path("M 14.7 66.3 C 18 60 23 39 29.3 38.4 C 35 38.4 40 50 44.9 50.9 C 51 52 56 38.4 61 38.4 C 68 38 73 61 79.5 62.9"); offset-anchor: center; offset-rotate: 0deg; animation: moagil-loading-path 2.2s linear infinite; }
+@keyframes moagil-loading-path { to { offset-distance: 100%; } }
+@media (prefers-reduced-motion: reduce) {
+  .moagil-loading-dot { animation: none; offset-distance: 0%; }
+}
+
 body:not(.passenger-body) .avatar-tone-1 { background: #f3c3c6; }
 body:not(.passenger-body) .avatar-tone-2 { background: #c6d5f7; }
 body:not(.passenger-body) .avatar-tone-3 { background: #c3e4d4; }

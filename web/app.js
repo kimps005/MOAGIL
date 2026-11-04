@@ -36,6 +36,7 @@ const state = {
   saving: false,
   showPhone: false,
   autoPlanning: false,
+  orderUpdatePending: false,
   autoPlanError: '',
   mapProvider: 'kakao',
   mapErrorMessage: '',
@@ -189,10 +190,15 @@ function passengerRows() {
 function routeRows() {
   const order = currentOrder();
   if (!state.session?.routeSnapshot || !order.length) return '<div class="empty-list">' + (state.autoPlanning ? '추천 순서를 계산하고 있어요…' : state.autoPlanError ? '자동 계산을 완료하지 못했습니다. 다시 계산해 주세요.' : '위치가 등록되면 자동 계산합니다.') + '</div>';
-  const editable = state.session.state === 'PLANNED' && state.parked;
+  const editable = state.session.state === 'PLANNED' && state.parked && !state.orderUpdatePending;
   const items = order.map((person, index) => '<li class="order-item"><span class="order-number">' + (index + 1) + '</span><div><div class="order-name">' + esc(passengerName(person.displayName)) + '</div><div class="order-destination">' + esc(person.point.label || '시연 지점') + '</div></div><div class="order-move">' + (editable ? '<button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="-1" aria-label="위로 이동" ' + (index === 0 || (state.session.priorityPassengerId && index === 1) ? 'disabled' : '') + '>↑</button><button class="icon-btn" data-action="move" data-index="' + index + '" data-delta="1" aria-label="아래로 이동" ' + (index === order.length - 1 || (state.session.priorityPassengerId && index === 0) ? 'disabled' : '') + '>↓</button>' : '') + '</div></li>').join('');
   const providerLabel = 'Kakao Navi 실시간 경로';
-  return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">' + providerLabel + '</div></div><ol class="order-list">' + items + '</ol></div>';
+  return '<div class="route-panel"><div class="route-top"><div><div class="route-total">' + formatDuration(state.session.routeSnapshot.durationMs) + ' <span>예상 시간</span></div><div class="route-meta">' + formatDistance(state.session.routeSnapshot.distanceM) + ' · ' + (state.session.routeSnapshot.evaluatedCount || 1) + '가지 순서 비교</div></div><div class="mock-pill">' + providerLabel + '</div></div><ol class="order-list" aria-busy="' + state.orderUpdatePending + '">' + items + '</ol></div>';
+}
+
+function orderUpdateOverlay() {
+  if (!state.orderUpdatePending) return '';
+  return '<div class="order-update-overlay" role="status" aria-live="polite" aria-label="하차 순서를 저장하고 있습니다"><div class="order-update-content"><div class="moagil-loading-mark" aria-hidden="true"><img src="/moagil-logo.png?v=20261103" alt=""><span class="moagil-loading-dot"></span></div><strong>하차 순서를 저장하고 있어요</strong><span>변경된 경로를 받으면 바로 반영됩니다.</span></div></div>';
 }
 
 function activeDestination() {
@@ -376,6 +382,7 @@ function render() {
   }
   document.body.classList.remove('passenger-body');
   app.innerHTML = driverMarkup();
+  if (state.orderUpdatePending) app.insertAdjacentHTML('beforeend', orderUpdateOverlay());
   decorateActiveNavigation();
   const canvas = byId('invite-qr');
   if (canvas && state.credentials) {
@@ -610,13 +617,40 @@ async function handleAction(button) {
     }
     if (action === 'move') {
       if (!state.parked) return toast('정차 상태(시연)에서만 순서를 조정할 수 있습니다.');
+      if (state.orderUpdatePending) return;
       const order = currentOrder().map(person => person.id);
       const index = Number(button.dataset.index);
       const next = index + Number(button.dataset.delta);
       if (next < 0 || next >= order.length) return;
       [order[index], order[next]] = [order[next], order[index]];
-      const updated = await mutate('/select-order', { expectedVersion: state.session.version, order });
-      return toast('새 순서의 경로를 계산했습니다. ' + (updated.routeSnapshot?.note || '경로 정보를 확인해 주세요.'));
+      const previousSession = state.session;
+      const expectedVersion = previousSession.version;
+      state.session = { ...previousSession, selectedOrder: order };
+      state.orderUpdatePending = true;
+      render();
+      try {
+        const updated = await api('/api/sessions/' + previousSession.sessionId + '/select-order', {
+          method: 'POST',
+          body: JSON.stringify({ expectedVersion, order }),
+        }, state.credentials.driverToken);
+        if (state.session?.sessionId === updated.sessionId && updated.version >= state.session.version) {
+          state.session = updated;
+        }
+        toast('새 순서의 경로를 계산했습니다. ' + (updated.routeSnapshot?.note || '경로 정보를 확인해 주세요.'));
+      } catch (error) {
+        if (state.session?.sessionId === previousSession.sessionId && state.session.version <= expectedVersion) {
+          state.session = previousSession;
+        }
+        state.orderUpdatePending = false;
+        render();
+        toast(error.message);
+        await refreshSession(true).catch(() => {});
+        return;
+      } finally {
+        state.orderUpdatePending = false;
+        render();
+      }
+      return;
     }
     if (action === 'plan') {
       if (state.session.passengers.length < 1) return toast('동승자 한 명 이상 등록해 주세요.');
@@ -678,9 +712,12 @@ async function handleAction(button) {
 
 async function refreshSession(force = false) {
   if (!state.credentials) return;
+  if (state.orderUpdatePending) return;
   if (!force && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
   try {
     const next = await api('/api/sessions/' + state.credentials.sessionId, {}, state.credentials.driverToken);
+    if (state.orderUpdatePending) return;
+    if (state.session?.sessionId === next.sessionId && next.version < state.session.version) return;
     const joinBaseChanged = Boolean(next.joinBaseUrl && next.joinBaseUrl !== state.credentials.joinBaseUrl);
     if (joinBaseChanged) saveCredentials({ ...state.credentials, joinBaseUrl: next.joinBaseUrl });
     if (force || !state.session || next.version !== state.session.version || joinBaseChanged) {
