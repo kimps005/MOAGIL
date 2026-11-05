@@ -1,6 +1,6 @@
 /* Kakao Maps JavaScript API adapter for the web maps. */
 (() => {
-  const { escapeHtml, passengerName } = window.MOAGILUtils;
+  const { escapeHtml } = window.MOAGILUtils;
 
   function latLng(point) {
     return new kakao.maps.LatLng(Number(point.lat), Number(point.lon));
@@ -90,7 +90,7 @@
         addPassengerLabel(
           map,
           person.point,
-          passengerName(person.displayName) || '하차 지점',
+          person.displayName || '하차 지점',
           passengerColor,
           stopNumber,
           overlays,

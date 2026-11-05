@@ -58,10 +58,10 @@ async function main() {
     if (url.pathname === '/api/sessions/test-session/passengers' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
       assert.equal(body.inviteToken, 'invite-test');
-      assert.equal(body.displayName, '🐱 수연');
+      assert.equal(body.displayName, '수연');
       assert.equal(body.point.lat, 37.345);
       assert.equal(body.point.lon, 126.739);
-      assert.equal(body.point.label, '지도에서 선택한 위치');
+      assert.equal(body.point.label, '주소 확인 불가 · 37.34500, 126.73900');
       registeredPassenger = { id: 'test-passenger', displayName: body.displayName, point: body.point };
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ passengerId: registeredPassenger.id, displayName: registeredPassenger.displayName, point: registeredPassenger.point }) });
     }
@@ -146,9 +146,6 @@ async function main() {
     await page.locator('#pin-map').waitFor();
     assert.match(await page.locator('.passenger-heading h1').innerText(), /목적지 입력/);
     assert.equal(await page.locator('#display-name').getAttribute('placeholder'), '이름이나 별명을 입력하세요.');
-    assert.equal(await page.locator('.emoji-option').count(), await page.evaluate(() => window.MOAGILUtils.avatarEmojis.length));
-    await page.locator('[data-emoji="🐱"]').click();
-    assert.equal(await page.locator('[data-emoji="🐱"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.phone-submit').isVisible(), true);
     assert.equal(await page.locator('.phone-badge').count(), 0);
     assert.equal(await page.locator('.passenger-heading p, .phone-map-top, .privacy-note, .footer, #place-label').count(), 0);
@@ -166,7 +163,7 @@ async function main() {
     await page.locator('#display-name').fill('수연');
     await page.locator('.phone-submit').click();
     await page.locator('.passenger-progress-card').waitFor();
-    assert.match(await page.locator('.passenger-progress-identity strong').innerText(), /🐱 수연/);
+    assert.equal(await page.locator('.passenger-progress-identity strong').innerText(), '수연');
     console.log('UI PASS: QR 참가 화면 간소화, 장소 검색 핀 이동, 목적지 등록 완료');
   } finally {
     await browser.close();

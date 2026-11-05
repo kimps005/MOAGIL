@@ -196,7 +196,7 @@ private fun DriverScreen(state: DriverUiState, model: MoagilViewModel) {
     pendingDelete?.let { passenger ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("${passengerName(passenger.displayName)} 참가를 삭제할까요?") },
+            title = { Text("${passenger.displayName} 참가를 삭제할까요?") },
             text = { Text("모집 중인 참가자만 삭제할 수 있으며, 경로 계산은 다시 해야 합니다.") },
             confirmButton = { TextButton(onClick = { pendingDelete = null; model.removePassenger(passenger) }) { Text("삭제") } },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("취소") } },
@@ -694,7 +694,7 @@ private fun FriendStopRow(
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(passengerName(passenger.displayName), color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(passenger.displayName, color = Color(0xFF252B3E), fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (fixedPosition != null) {
                     Text(
                         "${fixedPosition}번째 고정",
@@ -792,19 +792,6 @@ private fun CompactInviteQr(session: DriverSession, joinBaseUrl: String, inviteT
         }
     }
 }
-
-private val passengerAvatarEmojis = setOf(
-    "🚗", "🚕", "🚙", "🚌", "🚲", "🐱", "🐶", "🐼", "🐰", "🦊", "🌸", "⭐",
-    "🚎", "🚐", "🚓", "🚑", "🚒", "🚚", "🚛", "🛵", "🏍️", "✈️",
-    "🐻", "🐨", "🐯", "🦁", "🐸", "🐵", "🐧", "🦉", "🦄", "🐝", "🦋", "🐢",
-    "🐬", "🐳", "🦈", "🐙", "🦖", "🐘", "🌈", "☀️", "🌹", "🌻", "🍀", "🍁",
-    "🍎", "🍉", "🍓", "🍕", "🧋", "⚽",
-)
-
-private fun passengerEmoji(displayName: String): String? = passengerAvatarEmojis.firstOrNull { displayName.startsWith("$it ") }
-
-fun passengerName(displayName: String): String =
-    passengerEmoji(displayName)?.let { displayName.removePrefix("$it ").trim() } ?: displayName
 
 @Composable
 private fun SessionDetailsColumn(
@@ -968,7 +955,7 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(passengerName(passenger.displayName), fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                        Text(passenger.displayName, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
                         Text(passenger.point.label, color = Muted, fontSize = 17.sp, lineHeight = 23.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (canRemove) TextButton(onClick = { onDelete(passenger) }) { Text("삭제", color = Alert) }
@@ -1017,7 +1004,7 @@ private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, mode
 @Composable
 private fun PriorityPicker(session: DriverSession, state: DriverUiState, model: MoagilViewModel, enabled: Boolean) {
     var expanded by remember { mutableStateOf(false) }
-    val selected = session.passengers.firstOrNull { it.id == state.priorityId }?.displayName?.let(::passengerName) ?: "지정 안 함"
+    val selected = session.passengers.firstOrNull { it.id == state.priorityId }?.displayName ?: "지정 안 함"
     Column {
         Text("먼저 하차할 승객", color = Muted, fontSize = 12.sp)
         Box {
@@ -1025,7 +1012,7 @@ private fun PriorityPicker(session: DriverSession, state: DriverUiState, model: 
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 DropdownMenuItem(text = { Text("지정 안 함") }, onClick = { expanded = false; if (state.priorityId != null) model.setPriority(null) })
                 session.passengers.forEach { passenger ->
-                    DropdownMenuItem(text = { Text(passengerName(passenger.displayName)) }, onClick = { expanded = false; if (passenger.id != state.priorityId) model.setPriority(passenger.id) })
+                    DropdownMenuItem(text = { Text(passenger.displayName) }, onClick = { expanded = false; if (passenger.id != state.priorityId) model.setPriority(passenger.id) })
                 }
             }
         }
@@ -1154,7 +1141,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                         ) {
                             Text("${index + 1}", color = Mint, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(passenger?.displayName?.let(::passengerName) ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(passenger?.displayName ?: "동승자", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(passenger?.point?.label.orEmpty(), color = Muted, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (fixed) Text("${fixedPosition}번째 고정", color = Mint, fontSize = 10.sp)
@@ -1270,7 +1257,7 @@ private fun ActiveCard(session: DriverSession, state: DriverUiState, model: Moag
             Text("${session.selectedOrder.size - session.activeIndex}명 남음", color = Muted, fontSize = 12.sp)
             Text(
                 when {
-                    passenger != null -> "다음 하차 · ${passengerName(passenger.displayName)}"
+                    passenger != null -> "다음 하차 · ${passenger.displayName}"
                     finalLeg -> "운전자 최종 목적지 · ${session.finalPoint?.label}"
                     else -> "승객 하차 완료"
                 },

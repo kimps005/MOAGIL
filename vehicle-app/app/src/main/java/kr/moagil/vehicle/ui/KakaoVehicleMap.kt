@@ -413,7 +413,7 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
               window.moagilNativeMapError = false;
               layoutMapViewport();
               setMapStage('지도 설정을 불러오는 중이에요.');
-              addScript(mapAssetOrigin + '/utils.js', function() {
+              addScript(mapAssetOrigin + '/utils.js?v=20261105-2', function() {
                 if (generation !== mapLoadGeneration) return;
                 setMapStage('카카오 지도에 연결하고 있어요.');
                 addScript('https://dapi.kakao.com/v2/maps/sdk.js?appkey=' + encodeURIComponent(kakaoKey) + '&autoload=false', function() {
