@@ -39,6 +39,21 @@
     bounds.push(latLng(point));
   }
 
+  function addPassengerLabel(map, point, name, color, stopNumber, overlays, bounds) {
+    if (!point || !Number.isFinite(Number(point.lat)) || !Number.isFinite(Number(point.lon))) return;
+    const content = '<span class="moagil-pin-wrap moagil-person-marker" title="' + escapeHtml(name) + '"><span class="moagil-person-name moagil-person-tone-' + color + '">' + escapeHtml(name) + '</span><span class="moagil-pin moagil-pin-passenger-' + color + '"><b>' + stopNumber + '</b></span></span>';
+    const overlay = new kakao.maps.CustomOverlay({
+      position: latLng(point),
+      content,
+      xAnchor: 0.5,
+      yAnchor: 1,
+      zIndex: 310,
+    });
+    overlay.setMap(map);
+    overlays.push(overlay);
+    bounds.push(latLng(point));
+  }
+
   function fitMap(map, points) {
     if (points.length > 1) {
       const bounds = new kakao.maps.LatLngBounds();
@@ -66,16 +81,18 @@
       overlays.push(startOverlay);
       bounds.push(latLng(start));
     }
+    let stopNumber = 0;
     order.forEach(id => {
       const person = passengerById.get(id);
       if (person) {
         const passengerColor = (passengerPositionById.get(person.id) || 0) + 1;
-        addDriverPoint(
+        stopNumber += 1;
+        addPassengerLabel(
           map,
           person.point,
-          '',
-          'passenger-' + passengerColor,
           passengerName(person.displayName) || '하차 지점',
+          passengerColor,
+          stopNumber,
           overlays,
           bounds,
         );
