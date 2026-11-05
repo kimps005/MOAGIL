@@ -587,6 +587,12 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun acceptSession(session: DriverSession, notice: String?, preserveOptimisticOrder: Boolean = true) {
         val localSession = _state.value.session
+        if (localSession?.sessionId == session.sessionId && session.version < localSession.version) {
+            // A poll can finish after a newer route update and return its older snapshot.
+            // Keep the newer order/version so the next reorder uses the current server version.
+            _state.value = _state.value.copy(connected = true)
+            return
+        }
         val preserveOrder = preserveOptimisticOrder && orderUpdateJob?.isActive == true &&
             _state.value.routeUpdating && localSession?.sessionId == session.sessionId
         val displayedSession = if (preserveOrder) {

@@ -599,12 +599,12 @@ private fun LiveStopsPanel(
                     enabled = state.canOperate && !state.busy && !state.routeUpdating && !state.autoPlanning,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
-                    Text(if (state.routeUpdating || state.autoPlanning) "최적 경로 계산 중…" else "최적 경로 설정", fontWeight = FontWeight.Bold)
+                    Text(if (state.routeUpdating || state.autoPlanning) "최단 시간 경로 계산 중…" else "가장 빠른 경로로 정렬", fontWeight = FontWeight.Bold)
                 }
             }
 
             if (orderedPeople.isNotEmpty() && session.state in setOf("COLLECTING", "PLANNED")) {
-                Text("핀으로 현재 순서를 고정하세요. 최적 경로를 다시 계산해도 고정 위치는 유지됩니다.", color = Muted, fontSize = 14.sp, lineHeight = 19.sp)
+                Text("위·아래 버튼으로 순서를 바꾸고, 핀으로 원하는 위치를 고정하세요.", color = Muted, fontSize = 14.sp, lineHeight = 19.sp)
             }
 
             LazyColumn(
@@ -1113,7 +1113,7 @@ private fun OrderCard(session: DriverSession, state: DriverUiState, model: Moagi
                 onClick = model::optimizeRoute,
                 enabled = canEdit && !state.routeUpdating && !state.autoPlanning,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("고정 위치를 유지하고 최적 경로 설정") }
+            ) { Text("고정 위치를 유지하고 가장 빠른 경로로 정렬") }
             val rowsHeight = if (localOrder.isEmpty()) 0.dp else rowSlotHeight * (localOrder.size - 1) + rowHeight
             Box(Modifier.fillMaxWidth().height(rowsHeight)) {
                 localOrder.forEachIndexed { index, id ->
