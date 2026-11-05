@@ -260,6 +260,19 @@ private fun vehicleMapHtml(origin: String, assetOrigin: String, javascriptKey: S
             .moagil-pin-next { background: #7b8eff; }
             .moagil-pin-stop { background: #8594c8; }
             .moagil-pin-start { background: #424d68; }
+            .moagil-pin-wrap.moagil-person-marker { display: flex; width: max-content; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; }
+            .moagil-person-name { display: inline-flex; max-width: 170px; min-height: 25px; align-items: center; gap: 6px; overflow: hidden; padding: 4px 9px; border: 1px solid var(--person-tone); border-radius: 999px; color: var(--person-ink); background: #fff; box-shadow: 0 3px 10px rgba(32,42,70,.16); font-size: 12px; font-weight: 750; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+            .moagil-person-name::before { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--person-tone); content: ""; }
+            .moagil-person-tone-1 { --person-tone: #f3c3c6; --person-ink: #713a41; }
+            .moagil-person-tone-2 { --person-tone: #c6d5f7; --person-ink: #33476d; }
+            .moagil-person-tone-3 { --person-tone: #c3e4d4; --person-ink: #285344; }
+            .moagil-person-tone-4 { --person-tone: #f3e4ad; --person-ink: #67551d; }
+            .moagil-pin-passenger-1, .moagil-pin-passenger-2, .moagil-pin-passenger-3, .moagil-pin-passenger-4 { width: 25px; height: 25px; border: 2px solid #fff; border-radius: 50%; transform: none; color: #34425f; box-shadow: 0 3px 10px rgba(32,42,70,.24); }
+            .moagil-pin-passenger-1 { background: #f3c3c6; }
+            .moagil-pin-passenger-2 { background: #c6d5f7; }
+            .moagil-pin-passenger-3 { background: #c3e4d4; }
+            .moagil-pin-passenger-4 { background: #f3e4ad; }
+            .moagil-pin-passenger-1 b, .moagil-pin-passenger-2 b, .moagil-pin-passenger-3 b, .moagil-pin-passenger-4 b { display: block; transform: none; }
           </style>
         </head>
         <body>
