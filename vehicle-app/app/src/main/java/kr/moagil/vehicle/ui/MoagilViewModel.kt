@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ import kr.moagil.vehicle.data.DriverVault
 import kr.moagil.vehicle.data.MoagilApi
 import kr.moagil.vehicle.data.Passenger
 import kr.moagil.vehicle.data.Point
+import kr.moagil.vehicle.data.JsonModels
 import kr.moagil.vehicle.navigation.createNavigationPort
 import kr.moagil.vehicle.navigation.VehicleContext
 import kr.moagil.vehicle.navigation.createVehicleContextPort
@@ -42,9 +44,11 @@ data class DriverUiState(
     val routeUpdating: Boolean = false,
     val autoPlanning: Boolean = false,
     val autoPlanError: String? = null,
-    val finalEnabled: Boolean = false,
-    val finalLat: String = "37.510000",
-    val finalLon: String = "126.950000",
+    val homeDestination: Point? = null,
+    val workDestination: Point? = null,
+    val destinationSearchResults: List<Point> = emptyList(),
+    val destinationSearchLoading: Boolean = false,
+    val destinationSearchError: String? = null,
     val priorityId: String? = null,
     val navigationMessage: String = "",
     val navigationConfirmed: Boolean = false,
@@ -66,6 +70,7 @@ private fun isLocalServiceUrl(value: String): Boolean {
 
 class MoagilViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = DriverVault(application)
+    private val destinationPreferences = application.getSharedPreferences("moagil-saved-destinations", Application.MODE_PRIVATE)
     private val navigation = createNavigationPort(application)
     private val vehicleContextPort = createVehicleContextPort(application)
     private val _state = MutableStateFlow(DriverUiState())
@@ -76,12 +81,17 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     private var orderUpdateJob: Job? = null
     private var queuedOrder: List<String>? = null
     private var originSyncJob: Job? = null
+    private var destinationSearchJob: Job? = null
     private var autoPlanAttemptKey: String? = null
     private var vehicleContextStarted = false
     private var pleosCoveredPassengerUntil = -1
     private var pleosSegmentIncludesFinalDestination = false
 
     init {
+        _state.value = _state.value.copy(
+            homeDestination = loadSavedDestination("home"),
+            workDestination = loadSavedDestination("work"),
+        )
         if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) startVehicleContext()
         healthJob = viewModelScope.launch {
             while (isActive) {
@@ -101,10 +111,68 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setApiBaseUrl(value: String) { _state.value = _state.value.copy(apiBaseUrl = value, errorMessage = null) }
-    fun setFinalLat(value: String) { _state.value = _state.value.copy(finalLat = value) }
-    fun setFinalLon(value: String) { _state.value = _state.value.copy(finalLon = value) }
     fun clearMessages() { _state.value = _state.value.copy(errorMessage = null, notice = null) }
     fun setCancelConfirmation(show: Boolean) { _state.value = _state.value.copy(cancelConfirmation = show) }
+
+    fun saveHomeDestination(point: Point) = saveDestination("home", point)
+    fun saveWorkDestination(point: Point) = saveDestination("work", point)
+
+    fun selectHomeDestination() {
+        val point = _state.value.homeDestination ?: return
+        setFinalDestination(point, "집 · ${point.label}")
+    }
+
+    fun selectWorkDestination() {
+        val point = _state.value.workDestination ?: return
+        setFinalDestination(point, "회사 · ${point.label}")
+    }
+
+    fun selectCustomDestination(point: Point) {
+        setFinalDestination(point, "직접 목적지 · ${point.label}")
+    }
+
+    fun searchFinalDestination(query: String) {
+        val normalized = query.trim()
+        if (normalized.length < 2) {
+            _state.value = _state.value.copy(destinationSearchError = "장소를 두 글자 이상 입력해 주세요.", destinationSearchResults = emptyList())
+            return
+        }
+        destinationSearchJob?.cancel()
+        destinationSearchJob = viewModelScope.launch {
+            _state.value = _state.value.copy(destinationSearchLoading = true, destinationSearchError = null, destinationSearchResults = emptyList())
+            try {
+                val results = MoagilApi(_state.value.apiBaseUrl).searchPlaces(normalized)
+                _state.value = _state.value.copy(
+                    destinationSearchResults = results,
+                    destinationSearchLoading = false,
+                    destinationSearchError = if (results.isEmpty()) "검색 결과가 없습니다. 다른 검색어를 입력해 주세요." else null,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(
+                    destinationSearchLoading = false,
+                    destinationSearchError = error.message ?: "장소 검색에 실패했습니다.",
+                )
+            }
+        }
+    }
+
+    fun setFinalDestination(point: Point?, label: String? = null) = driverAction {
+        ensureParked()
+        val session = requireSession()
+        check(session.state in setOf("COLLECTING", "PLANNED")) { "이동 시작 전까지만 최종 목적지를 바꿀 수 있습니다." }
+        val final = point?.let { it.copy(label = label ?: it.label) }
+        _state.value = _state.value.copy(routeUpdating = true)
+        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
+            requireCredentials(), session, final, _state.value.priorityId, routePreference = session.routePreference,
+        )
+        acceptSession(
+            updated,
+            if (final == null) "최종 목적지를 해제했습니다. 하차 순서와 도착 예상 시간을 다시 계산합니다."
+            else "${final.label}을(를) 최종 목적지로 적용했습니다. 최적 경로를 다시 계산합니다.",
+        )
+    }
 
     fun startVehicleContext() {
         if (vehicleContextStarted) return
@@ -170,7 +238,6 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             simulatedParked = false,
             canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked,
             priorityId = demoSession?.priorityPassengerId,
-            finalEnabled = demoSession?.finalPoint != null,
             errorMessage = null,
             notice = if (demo) "시연용 위치 4개를 불러왔습니다. 순서를 계산하면 서버가 실제 도로 경로를 비교합니다." else "새 이동을 만들었습니다. 초대 QR에서 참가를 기다립니다.",
             navigationMessage = "",
@@ -194,7 +261,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         autoPlanJob?.cancel()
         autoPlanAttemptKey = null
         val reusableSingleStopRoute = session.passengers.size == 1 && session.route != null
-        val final = finalPointOrNull()
+        val final = session.finalPoint
         val fixedPositions = session.fixedPositions.toMutableMap().apply {
             session.priorityPassengerId?.takeIf { it != passengerId }?.let { remove(it) }
             if (passengerId != null) {
@@ -226,18 +293,6 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             fixedPositions = session.fixedPositions,
         )
         acceptSession(updated, if (preference == "FREE") "무료 도로 우선으로 경로를 다시 계산합니다." else "시간 우선으로 경로를 다시 계산합니다.")
-    }
-
-    fun setFinalDestination(enabled: Boolean) = driverAction {
-        ensureParked()
-        val session = requireSession()
-        val final = if (enabled) finalPointOrNull(required = true) else null
-        _state.value = _state.value.copy(routeUpdating = true)
-        val updated = MoagilApi(requireCredentials().apiBaseUrl).saveSettings(
-            requireCredentials(), session, final, _state.value.priorityId, routePreference = session.routePreference,
-        )
-        _state.value = _state.value.copy(finalEnabled = enabled)
-        acceptSession(updated, "운전자 최종 목적지를 저장했습니다. 경로를 다시 계산해 주세요.")
     }
 
     fun plan() = driverAction {
@@ -442,7 +497,7 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         pleosCoveredPassengerUntil = -1
         pleosSegmentIncludesFinalDestination = false
         viewModelScope.launch { navigation.close() }
-        _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked, priorityId = null, finalEnabled = false, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
+        _state.value = _state.value.copy(credentials = null, session = null, simulatedParked = false, canOperate = BuildConfig.PLEOS_NATIVE_NAVIGATION && _state.value.vehicleContext.isParked, priorityId = null, navigationMessage = "", notice = "이 기기에서 차량 토큰을 지웠습니다. 서버 이동은 취소되지 않았습니다.")
     }
 
     fun simulateNavigationFailure() = driverAction {
@@ -576,13 +631,20 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun finalPointOrNull(required: Boolean = false): Point? {
-        if (!_state.value.finalEnabled && !required) return null
-        val lat = _state.value.finalLat.toDoubleOrNull()
-        val lon = _state.value.finalLon.toDoubleOrNull()
-        require(lat != null && lon != null && lat in -90.0..90.0 && lon in -180.0..180.0) { "운전자 목적지 위도·경도를 확인해 주세요." }
-        return Point(lat, lon, "운전자 최종 목적지 · 시연")
+    private fun saveDestination(slot: String, point: Point) {
+        require(slot in setOf("home", "work"))
+        destinationPreferences.edit()
+            .putString(slot, JsonModels.pointJson(point).toString())
+            .apply()
+        _state.value = when (slot) {
+            "home" -> _state.value.copy(homeDestination = point, notice = "집 주소를 이 기기에 저장했습니다.")
+            else -> _state.value.copy(workDestination = point, notice = "회사 주소를 이 기기에 저장했습니다.")
+        }
     }
+
+    private fun loadSavedDestination(slot: String): Point? = runCatching {
+        destinationPreferences.getString(slot, null)?.let { JsonModels.point(org.json.JSONObject(it)) }
+    }.getOrNull()
 
     private fun acceptSession(session: DriverSession, notice: String?, preserveOptimisticOrder: Boolean = true) {
         val localSession = _state.value.session
@@ -601,9 +663,6 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
             session = displayedSession,
             connected = true,
             priorityId = displayedSession.priorityPassengerId,
-            finalEnabled = displayedSession.finalPoint != null,
-            finalLat = displayedSession.finalPoint?.lat?.toString() ?: _state.value.finalLat,
-            finalLon = displayedSession.finalPoint?.lon?.toString() ?: _state.value.finalLon,
             errorMessage = null,
             notice = notice ?: _state.value.notice,
         )

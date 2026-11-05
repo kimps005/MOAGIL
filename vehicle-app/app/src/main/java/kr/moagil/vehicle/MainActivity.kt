@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -527,6 +528,16 @@ private fun LiveStopsPanel(
     modifier: Modifier = Modifier,
 ) {
     var confirmPleosRoute by remember { mutableStateOf(false) }
+    var showDestinationSearch by remember { mutableStateOf(false) }
+    val currentTimeMillis by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            delay(60_000L)
+            value = System.currentTimeMillis()
+        }
+    }
+    if (showDestinationSearch) {
+        FinalDestinationSearchDialog(state, model) { showDestinationSearch = false }
+    }
     if (confirmPleosRoute) {
         AlertDialog(
             onDismissRequest = { confirmPleosRoute = false },
@@ -569,6 +580,21 @@ private fun LiveStopsPanel(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("예상 소요 시간", color = Color(0xFF616B85), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(durationLabel, color = Color(0xFF36457F), fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    if (route != null && session.state in setOf("COLLECTING", "PLANNED")) session.finalPoint?.let { finalPoint ->
+                        val destinationName = when {
+                            finalPoint.label.startsWith("집 ·") -> "집"
+                            finalPoint.label.startsWith("회사 ·") -> "회사"
+                            else -> "목적지"
+                        }
+                        Text(
+                            "$destinationName 도착 예상 · ${formatClock(currentTimeMillis + route.durationMs)}",
+                            color = Color(0xFF616B85),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Box(Modifier.width(1.dp).height(56.dp).background(Color(0xFFD8DDF5)))
                 Column(Modifier.weight(1.15f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -578,6 +604,40 @@ private fun LiveStopsPanel(
                         enabled = !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED"),
                         onSelect = model::setRoutePreference,
                     )
+                }
+            }
+            if (session.state in setOf("COLLECTING", "PLANNED")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("마지막 도착지", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            session.finalPoint?.label ?: "미선택 · 마지막 승객 하차 후 종료",
+                            color = if (session.finalPoint == null) Muted else Color(0xFF36457F),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = { if (state.homeDestination == null) showDestinationSearch = true else model.selectHomeDestination() },
+                        enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text(if (state.homeDestination == null) "집 등록" else "집 도착", maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { if (state.workDestination == null) showDestinationSearch = true else model.selectWorkDestination() },
+                        enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text(if (state.workDestination == null) "회사 등록" else "회사 도착", maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { showDestinationSearch = true },
+                        modifier = Modifier.weight(1.2f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text("직접 선택", maxLines = 1) }
                 }
             }
             if (route == null && (state.autoPlanning || state.autoPlanError != null || session.passengers.isNotEmpty())) {
@@ -969,6 +1029,10 @@ private fun PassengerCard(session: DriverSession, state: DriverUiState, model: M
 private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, model: MoagilViewModel) {
     val enabled = state.canOperate && !state.busy && !state.routeUpdating && session.state in setOf("COLLECTING", "PLANNED")
     var expanded by remember { mutableStateOf(false) }
+    var showDestinationSearch by remember { mutableStateOf(false) }
+    if (showDestinationSearch) {
+        FinalDestinationSearchDialog(state, model) { showDestinationSearch = false }
+    }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -979,26 +1043,110 @@ private fun RouteSettingsCard(session: DriverSession, state: DriverUiState, mode
             }
             if (expanded) {
                 Text("출발지 · ${session.startPoint.label} · ${"%.4f".format(Locale.US, session.startPoint.lat)}, ${"%.4f".format(Locale.US, session.startPoint.lon)}", color = Muted)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("운전자 최종 목적지", fontWeight = FontWeight.SemiBold)
-                        Text("미선택이면 마지막 승객 하차 후 종료", color = Muted, fontSize = 12.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("마지막 도착지", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        session.finalPoint?.label ?: "선택하지 않으면 마지막 승객 하차 후 이동이 끝납니다.",
+                        color = if (session.finalPoint != null) Color(0xFF36457F) else Muted,
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SavedDestinationButton("집", state.homeDestination, session.finalPoint, enabled, { showDestinationSearch = true }, model::selectHomeDestination, Modifier.weight(1f))
+                        SavedDestinationButton("회사", state.workDestination, session.finalPoint, enabled, { showDestinationSearch = true }, model::selectWorkDestination, Modifier.weight(1f))
                     }
-                    Switch(checked = state.finalEnabled, onCheckedChange = { model.setFinalDestination(it) }, enabled = enabled)
-                }
-                if (state.finalEnabled) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(state.finalLat, model::setFinalLat, Modifier.weight(1f), label = { Text("위도") }, singleLine = true)
-                        OutlinedTextField(state.finalLon, model::setFinalLon, Modifier.weight(1f), label = { Text("경도") }, singleLine = true)
-                        Button(onClick = { model.setFinalDestination(true) }, enabled = enabled, modifier = Modifier.align(Alignment.CenterVertically)) { Text("저장") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { showDestinationSearch = true }, modifier = Modifier.weight(1f)) {
+                            Text("주소 검색 · 집/회사 등록", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (session.finalPoint != null) {
+                            TextButton(onClick = { model.setFinalDestination(null) }, enabled = enabled) { Text("해제") }
+                        }
                     }
-                    Text("좌표로 지정하는 시연용 목적지입니다.", color = Muted, fontSize = 12.sp)
+                    Text("집이나 회사를 등록해 두고 선택하거나, 이번 이동의 목적지를 검색해 바로 지정할 수 있습니다.", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
                 }
                 PriorityPicker(session, state, model, enabled)
                 if (!state.canOperate) Text(if (BuildConfig.PLEOS_NATIVE_NAVIGATION) "차량이 P 기어로 정차해야 설정할 수 있습니다." else "선택 사항 변경은 정차 확인 후 할 수 있습니다.", color = Color(0xFF98631D), fontSize = 12.sp)
             }
         }
     }
+}
+
+@Composable
+private fun SavedDestinationButton(
+    title: String,
+    point: Point?,
+    selectedPoint: Point?,
+    enabled: Boolean,
+    onRegister: () -> Unit,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val selected = point != null && selectedPoint?.let { it.lat == point.lat && it.lon == point.lon } == true
+    OutlinedButton(
+        onClick = if (point == null) onRegister else onSelect,
+        enabled = point == null || enabled,
+        modifier = modifier,
+        colors = if (selected) ButtonDefaults.outlinedButtonColors(contentColor = Mint) else ButtonDefaults.outlinedButtonColors(),
+    ) {
+        Column(horizontalAlignment = Alignment.Start) {
+            Text(if (point == null) "$title 주소 등록" else if (selected) "$title · 선택됨" else "$title 도착", fontWeight = FontWeight.SemiBold, maxLines = 1)
+            if (point != null) Text(point.label, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun FinalDestinationSearchDialog(state: DriverUiState, model: MoagilViewModel, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("최종 목적지 검색") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("검색한 장소를 이번 목적지로 쓰거나 집·회사 주소로 저장할 수 있습니다.", color = Muted, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("주소 또는 장소") },
+                        singleLine = true,
+                    )
+                    Button(onClick = { model.searchFinalDestination(query) }, enabled = !state.destinationSearchLoading && query.trim().length >= 2) {
+                        Text(if (state.destinationSearchLoading) "검색 중" else "검색")
+                    }
+                }
+                state.destinationSearchError?.let { Text(it, color = Alert, fontSize = 12.sp) }
+                if (state.destinationSearchLoading) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp) }
+                }
+                LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 340.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.destinationSearchResults) { point ->
+                        Column(
+                            Modifier.fillMaxWidth().background(PanelRaised, RoundedCornerShape(12.dp)).padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(point.label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                TextButton(onClick = { model.selectCustomDestination(point); onDismiss() }, enabled = state.canOperate && !state.busy && !state.routeUpdating, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("이번 목적지") }
+                                TextButton(onClick = { model.saveHomeDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("집에 저장") }
+                                TextButton(onClick = { model.saveWorkDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("회사에 저장") }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
 }
 
 @Composable
@@ -1344,3 +1492,5 @@ private fun formatTime(iso: String): String = runCatching {
     val date: Date = parser.parse(iso.take(20)) ?: return@runCatching "정보 없음"
     SimpleDateFormat("HH:mm", Locale.KOREA).format(date)
 }.getOrDefault("정보 없음")
+
+private fun formatClock(epochMillis: Long): String = SimpleDateFormat("HH:mm", Locale.KOREA).format(Date(epochMillis))

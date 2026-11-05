@@ -9,6 +9,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
 class ApiException(val status: Int, val code: String, override val message: String) : IOException(message)
@@ -26,6 +28,33 @@ class MoagilApi(private val baseUrl: String) {
 
     suspend fun kakaoMapJavascriptKey(): String =
         request("GET", "/api/config", null, null).optString("kakaoMapJavascriptKey")
+
+    suspend fun searchPlaces(query: String): List<Point> {
+        val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+        val features = request("GET", "/api/geocode?q=$encoded", null, null).optJSONArray("features") ?: JSONArray()
+        return (0 until features.length()).mapNotNull { index ->
+            val feature = features.optJSONObject(index) ?: return@mapNotNull null
+            val coordinates = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return@mapNotNull null
+            if (coordinates.length() < 2) return@mapNotNull null
+            val properties = feature.optJSONObject("properties") ?: JSONObject()
+            val name = properties.optString("name").takeIf(String::isNotBlank)
+            val address = properties.optString("roadAddress").takeIf(String::isNotBlank)
+                ?: properties.optString("address").takeIf(String::isNotBlank)
+                ?: listOf("street", "housenumber", "city", "state")
+                    .mapNotNull { key -> properties.optString(key).takeIf(String::isNotBlank) }
+                    .joinToString(" ")
+                    .takeIf(String::isNotBlank)
+            val label = when {
+                name == null -> address ?: "검색 위치"
+                address == null || address == name -> name
+                else -> "$name · $address"
+            }
+            val lon = coordinates.optDouble(0, Double.NaN)
+            val lat = coordinates.optDouble(1, Double.NaN)
+            if (!lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 || lon !in -180.0..180.0) null
+            else Point(lat, lon, label)
+        }
+    }
 
     suspend fun createSession(demo: Boolean): Pair<DriverCredentials, DriverSession?> {
         val path = if (demo) "/api/sessions/demo" else "/api/sessions"
