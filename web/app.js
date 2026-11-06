@@ -41,6 +41,8 @@ const state = {
   mapProvider: 'kakao',
   mapErrorMessage: '',
   routingProvider: 'kakao',
+  savedDestinations: { home: null, work: null },
+  destinationEditor: null,
 };
 
 const { escapeHtml: esc } = window.MOAGILUtils;
@@ -90,6 +92,42 @@ function saveCredentials(credentials) {
 function loadCredentials() {
   try { return JSON.parse(sessionStorage.getItem('moagil-driver') || 'null'); }
   catch (_error) { return null; }
+}
+
+const SAVED_DESTINATIONS_KEY = 'moagil-saved-destinations';
+
+function normalizeSavedPoint(value) {
+  if (!value || !Number.isFinite(Number(value.lat)) || !Number.isFinite(Number(value.lon))) return null;
+  const lat = Number(value.lat);
+  const lon = Number(value.lon);
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  const label = String(value.label || '').trim();
+  if (!label) return null;
+  return { lat, lon, label };
+}
+
+function loadSavedDestinations() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVED_DESTINATIONS_KEY) || '{}');
+    return { home: normalizeSavedPoint(saved.home), work: normalizeSavedPoint(saved.work) };
+  } catch (_error) {
+    return { home: null, work: null };
+  }
+}
+
+function persistSavedDestination(slot, point) {
+  if (!['home', 'work'].includes(slot)) return false;
+  const normalized = normalizeSavedPoint(point);
+  if (!normalized) return false;
+  const updated = { ...state.savedDestinations, [slot]: normalized };
+  try {
+    localStorage.setItem(SAVED_DESTINATIONS_KEY, JSON.stringify(updated));
+  } catch (_error) {
+    toast('이 브라우저에 주소를 저장하지 못했습니다. 저장 공간을 확인해 주세요.');
+    return false;
+  }
+  state.savedDestinations = updated;
+  return true;
 }
 
 function formatDuration(ms) {
@@ -210,6 +248,34 @@ function activeDestination() {
   return { label: '모든 하차 지점', point: null, type: '이동 마무리' };
 }
 
+function savedDestinationMarkup(session) {
+  const saved = state.savedDestinations || { home: null, work: null };
+  const selected = point => Boolean(point && session.finalPoint &&
+    Math.abs(Number(point.lat) - Number(session.finalPoint.lat)) < 0.000001 &&
+    Math.abs(Number(point.lon) - Number(session.finalPoint.lon)) < 0.000001);
+  const destinationButton = (slot, title) => {
+    const point = saved[slot];
+    return `<div class="saved-destination-row"><button class="saved-destination-select ${selected(point) ? 'is-selected' : ''}" type="button" data-action="select-saved-destination" data-slot="${slot}" ${point && !state.parked ? 'disabled' : ''}><strong>${point ? `${title}로 이동` : `${title} 주소 등록`}</strong><small>${esc(point?.label || '주소를 검색해 저장하세요')}</small></button><button class="saved-destination-edit" type="button" data-action="edit-saved-destination" data-slot="${slot}" aria-label="${title} 주소 ${point ? '변경' : '검색'}">${point ? '변경' : '검색'}</button></div>`;
+  };
+  return `<section class="saved-destinations"><div class="saved-destinations-heading"><div><div class="card-kicker">운전자 목적지</div><h3>마지막 도착지</h3></div><span>모든 승객 하차 후</span></div><div class="saved-destination-list">${destinationButton('home', '집')}${destinationButton('work', '회사')}</div><div class="saved-destination-footer"><span>${esc(session.finalPoint?.label || '선택하지 않으면 마지막 하차 후 종료')}</span>${session.finalPoint ? '<button type="button" data-action="clear-final-destination">해제</button>' : ''}</div><button class="saved-destination-custom" type="button" data-action="edit-final-destination">이번 이동 목적지 직접 검색</button>${!state.parked ? '<p class="saved-destination-hint">주소 저장은 언제든 가능하며, 최종 목적지 적용은 정차 확인 후 할 수 있어요.</p>' : ''}</section>`;
+}
+
+function destinationEditorMarkup() {
+  if (!state.destinationEditor) return '';
+  const slot = state.destinationEditor;
+  const title = slot === 'home' ? '집 주소 등록' : slot === 'work' ? '회사 주소 등록' : '이번 이동 최종 목적지';
+  const resultMarkup = state.searchResults.map((feature, index) => {
+    const place = placeParts(feature);
+    const extraActions = slot === 'final'
+      ? `<div class="destination-place-shortcuts"><button type="button" data-action="save-search-place" data-slot="home" data-index="${index}">집에 저장</button><button type="button" data-action="save-search-place" data-slot="work" data-index="${index}">회사에 저장</button></div>`
+      : '';
+    const actionLabel = slot === 'home' ? '집에 저장' : slot === 'work' ? '회사에 저장' : '이번 이동 목적지로 선택';
+    return `<div class="driver-place-result"><button type="button" class="driver-place-choice" data-action="select-place" data-index="${index}"><span>${esc(place.title)}</span>${place.context ? `<small>${esc(place.context)}</small>` : ''}<b>${actionLabel}</b></button>${extraActions}</div>`;
+  }).join('');
+  const message = state.searching ? '<div class="place-search-message">검색 중…</div>' : state.searchError ? `<div class="place-search-message">${esc(state.searchError)}</div>` : '';
+  return `<div class="destination-modal-backdrop" data-action="dismiss-destination-editor"><section class="destination-modal" role="dialog" aria-modal="true" aria-labelledby="destination-editor-title"><header><div><div class="card-kicker">주소 검색</div><h2 id="destination-editor-title">${title}</h2></div><button type="button" class="saved-destination-edit" data-action="close-destination-editor" aria-label="닫기">닫기</button></header><p>${slot === 'final' ? '마지막 승객을 내린 뒤 갈 목적지를 선택하세요.' : '주소를 검색해 저장합니다. 정차 상태라면 이번 이동의 마지막 도착지로도 적용됩니다.'}</p><div class="driver-destination-search"><input id="place-search" type="search" value="${esc(state.searchQuery)}" placeholder="장소 또는 주소 검색" aria-label="장소 또는 주소 검색"><button id="search-place-button" type="button" data-action="search-place" ${state.searching ? 'disabled' : ''}>검색</button></div><div id="place-results" class="driver-place-results" role="listbox" aria-live="polite" ${!resultMarkup && !message ? 'hidden' : ''}>${resultMarkup || message}</div><footer><button type="button" data-action="close-destination-editor">닫기</button></footer></section></div>`;
+}
+
 function driverMarkup() {
   const session = state.session;
   const passengers = session?.passengers || [];
@@ -229,15 +295,14 @@ function driverMarkup() {
   const destination = session.state === 'ACTIVE' ? activeDestination() : null;
   const currentPassenger = destination && (session.activeIndex || 0) < order.length;
   const finalArrived = destination && !currentPassenger && Boolean(session.finalPoint);
-  const finalEnabled = Boolean(session.finalPoint);
   const status = session.state === 'ACTIVE' ? '이동 중' : state.autoPlanning ? '순서 계산 중' : session.state === 'PLANNED' ? '추천 순서 준비됨' : '위치 수집 중';
   const qrHint = state.autoPlanning ? '등록 위치를 반영해 경로를 계산하고 있어요.' : state.autoPlanError ? esc(state.autoPlanError) : session.routeSnapshot ? `${session.routeSnapshot.evaluatedCount || 1}가지 순서 비교 완료 · ${esc(session.routeSnapshot.note || '')}` : '새 위치가 등록되면 자동 계산합니다.';
-  const settings = collecting ? `<details class='route-settings'><summary>경로 설정</summary><div class='settings'><div class='field'><label for='priority'>먼저 내릴 사람</label><select id='priority' ${!state.parked ? 'disabled' : ''}><option value=''>지정하지 않음</option>${passengers.map(person => `<option value='${esc(person.id)}' ${person.id === session.priorityPassengerId ? 'selected' : ''}>${esc(person.displayName)}</option>`).join('')}</select></div><div class='field'><label for='final-choice'>운전자 최종 목적지</label><select id='final-choice' ${!state.parked ? 'disabled' : ''}><option value='none' ${!finalEnabled ? 'selected' : ''}>설정 안 함</option><option value='preset' ${finalEnabled ? 'selected' : ''}>시연 지점 포함</option></select></div></div></details>` : '';
+  const settings = collecting ? `<details class='route-settings'><summary>경로 설정</summary><div class='settings'><div class='field'><label for='priority'>먼저 내릴 사람</label><select id='priority' ${!state.parked ? 'disabled' : ''}><option value=''>지정하지 않음</option>${passengers.map(person => `<option value='${esc(person.id)}' ${person.id === session.priorityPassengerId ? 'selected' : ''}>${esc(person.displayName)}</option>`).join('')}</select></div></div></details>` : '';
   const routeActions = session.state === 'ACTIVE'
     ? `<div class='active-card'><div class='safety-banner ${state.navConfirmed ? 'ready' : ''}'>${esc(state.navMessage || '○ 다음 하차 목적지 안내를 확인해 주세요.')}</div><div class='active-destination'><small>다음 목적지 · ${esc(destination.type)}</small><strong>${esc(destination.label)}</strong></div><div class='route-actions'>${currentPassenger ? `<button class='btn primary' data-action='complete-stop' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>하차 완료</button>` : `<button class='btn primary' data-action='complete-trip' ${!state.parked || !state.navConfirmed ? 'disabled' : ''}>${finalArrived ? '최종 목적지 도착' : '이동 마무리'}</button>`}<button class='btn warn' data-action='end'>이동 취소</button></div></div>`
     : `<div class='route-actions'><button class='btn' data-action='plan' ${state.autoPlanning ? 'disabled' : ''}>${session.routeSnapshot ? '순서 다시 계산' : '다시 계산'}</button>${session.state === 'PLANNED' ? `<button class='btn primary' data-action='start' ${!state.parked ? 'disabled' : ''}>${state.parked ? '이 순서로 안내 시작' : '정차 확인 후 안내 시작'}</button>` : ''}</div>`;
   const mapCaption = session.routeSnapshot?.geometry?.length ? routeProviderLabel : state.autoPlanning ? '추천 순서 계산 중' : '등록 위치를 기다리는 중';
-  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/app'><span class='brand-mark' aria-hidden='true'><img src='/moagil-logo.png?v=20261103' alt=''></span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot passengers'></i>동승자 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
+  return `<div class='app-shell live-shell'><header class='topbar'><a class='brand' href='/app'><span class='brand-mark' aria-hidden='true'><img src='/moagil-logo.png?v=20261103' alt=''></span><span class='brand-copy'><span class='brand-name'>MOAGIL</span><span class='brand-sub'>${shortId(session.sessionId)} · ${passengers.length}/4명</span></span></a><div class='nav-right'><span class='status-pill'><i class='status-dot'></i>${status}</span>${collecting ? `<button class='btn small' data-action='copy'>초대 링크 복사</button>` : ''}<button class='park-toggle ${state.parked ? 'is-parked' : ''}' data-action='park' aria-pressed='${state.parked}' title='정차 확인은 시연용입니다.'>${state.parked ? '✓ 정차 확인됨' : '정차 확인'}</button><button class='btn small' data-action='new'>새 이동</button></div></header><main class='route-workspace'><section class='card map-card'><div class='map-topline'><span class='map-label'>${mapName}</span><span class='map-label'>${mapCaption}</span></div><div id='driver-map' class='driver-map' role='application' aria-label='${mapName} 지도와 하차 경로'></div><div class='map-legend'><span class='legend-item'><i class='legend-dot dark'></i>출발지</span><span class='legend-item'><i class='legend-dot passengers'></i>동승자 위치</span></div></section><aside class='card session-panel'><section><div class='panel-heading'><div><div class='card-kicker'>현재 세션</div><h1 class='card-title'>등록 위치 <span>${passengers.length}/4명</span></h1></div></div>${passengerRows()}</section><section class='recommendation'><div class='panel-heading'><div><div class='card-kicker'>자동 추천</div><h2 class='card-title'>추천 하차 순서</h2></div><span class='mini-note'>${routeProviderLabel}</span></div><div class='route-status' role='status' aria-live='polite'>${qrHint}</div>${routeRows()}${state.autoPlanError ? `<div class='route-error'>자동 계산 실패 · <button class='tiny-button' data-action='plan'>다시 계산</button></div>` : ''}${collecting ? savedDestinationMarkup(session) : ''}${settings}${routeActions}</section></aside></main><footer class='footer live-footer'><span>MOAGIL</span><span>계산은 등록 즉시 갱신됩니다</span></footer></div>${destinationEditorMarkup()}${capture ? `<div class='capture-chip'>촬영 보호</div>` : ''}${phonePreview}`;
 }
 
 function placeParts(feature) {
@@ -258,6 +323,14 @@ function renderPlaceSearchResults() {
   if (button) button.disabled = state.searching;
   const results = state.searchResults.map((feature, index) => {
     const place = placeParts(feature);
+    if (state.destinationEditor) {
+      const slot = state.destinationEditor;
+      const actionLabel = slot === 'home' ? '집에 저장' : slot === 'work' ? '회사에 저장' : '이번 이동 목적지로 선택';
+      const extraActions = slot === 'final'
+        ? `<div class="destination-place-shortcuts"><button type="button" data-action="save-search-place" data-slot="home" data-index="${index}">집에 저장</button><button type="button" data-action="save-search-place" data-slot="work" data-index="${index}">회사에 저장</button></div>`
+        : '';
+      return `<div class="driver-place-result"><button type="button" class="driver-place-choice" role="option" data-action="select-place" data-index="${index}" ${slot === 'final' && !state.parked ? 'disabled' : ''}><span>${esc(place.title)}</span>${place.context ? `<small>${esc(place.context)}</small>` : ''}<b>${actionLabel}</b></button>${extraActions}</div>`;
+    }
     return `<button type="button" class="place-result" role="option" data-action="select-place" data-index="${index}"><span>${esc(place.title)}</span>${place.context ? `<small>${esc(place.context)}</small>` : ''}</button>`;
   }).join('');
   const message = state.searching ? '<div class="place-search-message">검색 중…</div>' : state.searchError ? `<div class="place-search-message">${esc(state.searchError)}</div>` : '';
@@ -303,24 +376,58 @@ async function searchPlaces() {
   }
 }
 
-function selectSearchResult(index) {
+function pointFromSearchResult(index) {
   const feature = state.searchResults[index];
   const coordinates = feature?.geometry?.coordinates;
   if (!Array.isArray(coordinates) || coordinates.length < 2) {
     state.searchError = '이 장소의 위치를 사용할 수 없습니다.';
     renderPlaceSearchResults();
-    return;
+    return null;
   }
   const [lon, lat] = coordinates.map(Number);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     state.searchError = '이 장소의 위치를 사용할 수 없습니다.';
     renderPlaceSearchResults();
-    return;
+    return null;
   }
   const place = placeParts(feature);
+  return { lat: +lat.toFixed(6), lon: +lon.toFixed(6), label: place.label };
+}
+
+async function selectSearchResult(index) {
+  const point = pointFromSearchResult(index);
+  if (!point) return;
+  const place = placeParts(state.searchResults[index]);
+  if (state.destinationEditor) {
+    const slot = state.destinationEditor;
+    state.searchResults = [];
+    state.searchError = '';
+    if (slot === 'home' || slot === 'work') {
+      if (!persistSavedDestination(slot, point)) return;
+      state.destinationEditor = null;
+      state.searchQuery = '';
+      render();
+      if (!state.parked) {
+        toast(`${slot === 'home' ? '집' : '회사'} 주소를 저장했습니다. 정차 확인 후 마지막 도착지로 선택할 수 있어요.`);
+        return;
+      }
+      try {
+        await applyFinalDestination(point, slot);
+      } catch (error) {
+        toast(error.message);
+      }
+      return;
+    }
+    if (!state.parked) return toast('정차 확인 후 이번 이동의 최종 목적지를 적용할 수 있어요.');
+    state.destinationEditor = null;
+    state.searchQuery = '';
+    render();
+    await applyFinalDestination(point, null);
+    return;
+  }
   pinLookupSequence += 1;
   pinAddressLookupPromise = Promise.resolve();
-  state.pin = { lat: +lat.toFixed(6), lon: +lon.toFixed(6), label: place.label };
+  state.pin = point;
   state.searchQuery = place.title;
   state.searchResults = [];
   state.searchError = '';
@@ -519,19 +626,56 @@ async function autoPlanIfNeeded(force = false) {
 async function saveSettings() {
   if (!state.parked) return toast('정차 상태(시연)를 먼저 확인해 주세요.');
   const priority = byId('priority')?.value || null;
-  const hasFinal = byId('final-choice')?.value === 'preset';
   const settings = {
     expectedVersion: state.session.version,
     startPoint: state.session.startPoint,
-    finalPoint: hasFinal ? { lat: 37.510, lon: 126.950, label: '운전자 최종 목적지' } : null,
+    finalPoint: state.session.finalPoint || null,
     priorityPassengerId: priority || null,
   };
   await mutate('/settings', settings, 'PUT');
 }
 
-async function handleAction(button) {
+function openDestinationEditor(slot) {
+  state.destinationEditor = slot;
+  state.searchQuery = '';
+  state.searchResults = [];
+  state.searchError = '';
+  state.searching = false;
+  render();
+  byId('place-search')?.focus();
+}
+
+function closeDestinationEditor() {
+  state.destinationEditor = null;
+  state.searchQuery = '';
+  state.searchResults = [];
+  state.searchError = '';
+  state.searching = false;
+  render();
+}
+
+async function applyFinalDestination(point, slot = null) {
+  if (!state.parked) throw new Error('정차 상태(시연)를 먼저 확인해 주세요.');
+  if (!state.session || !['COLLECTING', 'PLANNED'].includes(state.session.state)) throw new Error('이동을 시작하기 전에 최종 목적지를 선택해 주세요.');
+  const title = slot === 'home' ? '집' : slot === 'work' ? '회사' : null;
+  const finalPoint = point ? { ...point, label: title ? `${title} · ${point.label}` : point.label } : null;
+  await mutate('/settings', {
+    expectedVersion: state.session.version,
+    startPoint: state.session.startPoint,
+    finalPoint,
+    priorityPassengerId: state.session.priorityPassengerId || null,
+  }, 'PUT');
+  toast(finalPoint ? `마지막 도착지를 ${finalPoint.label}(으)로 설정했습니다.` : '마지막 승객 하차 후 이동을 종료하도록 설정했습니다.');
+}
+
+async function handleAction(button, event) {
   const action = button.dataset.action;
   try {
+    if (action === 'dismiss-destination-editor') {
+      if (event.target === button) closeDestinationEditor();
+      return;
+    }
+    if (action === 'close-destination-editor') return closeDestinationEditor();
     if (action === 'retry-map') {
       state.mapErrorMessage = '';
       mapConfigPromise = null;
@@ -540,7 +684,28 @@ async function handleAction(button) {
       return;
     }
     if (action === 'search-place') return await searchPlaces();
-    if (action === 'select-place') return selectSearchResult(Number(button.dataset.index));
+    if (action === 'select-place') return await selectSearchResult(Number(button.dataset.index));
+    if (action === 'save-search-place') {
+      const point = pointFromSearchResult(Number(button.dataset.index));
+      if (!point) return;
+      const slot = button.dataset.slot;
+      if (!persistSavedDestination(slot, point)) return;
+      render();
+      return toast(`${slot === 'home' ? '집' : '회사'} 주소를 저장했습니다.`);
+    }
+    if (action === 'edit-saved-destination') return openDestinationEditor(button.dataset.slot);
+    if (action === 'edit-final-destination') return openDestinationEditor('final');
+    if (action === 'select-saved-destination') {
+      const slot = button.dataset.slot;
+      const point = state.savedDestinations?.[slot];
+      if (!point) return openDestinationEditor(slot);
+      await applyFinalDestination(point, slot);
+      return;
+    }
+    if (action === 'clear-final-destination') {
+      await applyFinalDestination(null);
+      return;
+    }
     if (action === 'new') return await newSession(false);
     if (action === 'demo') return await newSession(true);
     if (action === 'park') {
@@ -929,11 +1094,11 @@ function randomToken() {
 app.addEventListener('click', event => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
-  handleAction(button);
+  handleAction(button, event);
 });
 
 app.addEventListener('change', event => {
-  if (event.target.id === 'priority' || event.target.id === 'final-choice') {
+  if (event.target.id === 'priority') {
     if (!state.parked) return toast('정차 상태(시연)에서만 설정을 바꿀 수 있습니다.');
     saveSettings().then(() => toast('이동 설정을 저장하고 추천 순서를 다시 계산합니다.')).catch(error => toast(error.message));
   }
@@ -953,6 +1118,10 @@ app.addEventListener('input', event => {
 });
 
 app.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && state.destinationEditor) {
+    closeDestinationEditor();
+    return;
+  }
   if (event.target.id === 'place-search' && event.key === 'Enter') {
     event.preventDefault();
     void searchPlaces();
@@ -964,6 +1133,7 @@ app.addEventListener('submit', event => {
 });
 
 async function startApp() {
+  state.savedDestinations = loadSavedDestinations();
   await loadMapConfig();
   if (location.pathname === '/join' || location.pathname.startsWith('/join/')) return initializePassenger();
   sessionStorage.removeItem('moagil-parked');
