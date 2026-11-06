@@ -606,40 +606,6 @@ private fun LiveStopsPanel(
                     )
                 }
             }
-            if (session.state in setOf("COLLECTING", "PLANNED")) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("마지막 도착지", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            session.finalPoint?.label ?: "미선택 · 마지막 승객 하차 후 종료",
-                            color = if (session.finalPoint == null) Muted else Color(0xFF36457F),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(
-                        onClick = { if (state.homeDestination == null) showDestinationSearch = true else model.selectHomeDestination() },
-                        enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text(if (state.homeDestination == null) "집 등록" else "집 도착", maxLines = 1) }
-                    OutlinedButton(
-                        onClick = { if (state.workDestination == null) showDestinationSearch = true else model.selectWorkDestination() },
-                        enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text(if (state.workDestination == null) "회사 등록" else "회사 도착", maxLines = 1) }
-                    OutlinedButton(
-                        onClick = { showDestinationSearch = true },
-                        modifier = Modifier.weight(1.2f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text("직접 선택", maxLines = 1) }
-                }
-            }
             if (route == null && (state.autoPlanning || state.autoPlanError != null || session.passengers.isNotEmpty())) {
                 Text(
                     when {
@@ -696,6 +662,38 @@ private fun LiveStopsPanel(
             }
 
             if (session.state in setOf("COLLECTING", "PLANNED")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("마지막 도착지", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            session.finalPoint?.label ?: "미선택 · 마지막 승객 하차 후 종료",
+                            color = if (session.finalPoint == null) Muted else Color(0xFF36457F),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = { if (state.homeDestination == null) showDestinationSearch = true else model.selectHomeDestination() },
+                        enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text(if (state.homeDestination == null) "집 등록" else "집 도착", maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { if (state.workDestination == null) showDestinationSearch = true else model.selectWorkDestination() },
+                        enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text(if (state.workDestination == null) "회사 등록" else "회사 도착", maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { showDestinationSearch = true },
+                        modifier = Modifier.weight(1.2f),
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
+                    ) { Text("직접 선택", maxLines = 1) }
+                }
                 CompactInviteQr(session, joinBaseUrl, inviteToken)
             }
             if (session.state == "PLANNED" && route != null) {
