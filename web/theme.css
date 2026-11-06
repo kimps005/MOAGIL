@@ -194,9 +194,6 @@ body.passenger-body {
 .passenger-name-editor { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; }
 .passenger-name-editor[hidden] { display: none; }
 #passenger-edit-name { width: 100%; min-width: 0; min-height: 46px; padding: 0 13px; border: 1px solid rgba(93,112,230,.34); border-radius: 13px; color: #252b3e; background: #fff; font: inherit; font-weight: 550; }
-.selected-point-address { min-height: 42px; display: flex; align-items: flex-start; gap: 8px; margin-top: 9px; padding: 11px 12px; border: 1px solid rgba(110,122,158,.12); border-radius: 12px; color: #3d4d79; background: rgba(255,255,255,.78); font-size: 13px; line-height: 1.5; }
-.selected-point-address > span:first-child { flex: 0 0 auto; color: #2d52ca; font-size: 18px; line-height: 1.15; }
-.selected-point-address > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .passenger-progress-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .passenger-progress-metric { display: grid; gap: 7px; min-width: 0; padding: 13px; border: 1px solid rgba(110,122,158,.12); border-radius: 15px; background: rgba(255,255,255,.56); }
 .passenger-progress-metric small { color: #737c8f; font-size: 10px; }
@@ -373,4 +370,40 @@ body:not(.passenger-body) .avatar-tone-4 { background: #f3e4ad; }
 .order-number.order-number-tone-1 { color: #713a41; background: #f3c3c6; }
 .order-number.order-number-tone-2 { color: #33476d; background: #c6d5f7; }
 .order-number.order-number-tone-3 { color: #285344; background: #c3e4d4; }
+
+@media (max-width: 560px) {
+  html.passenger-page,
+  html.passenger-page body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  html.passenger-page body {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+  }
+  html.passenger-page #app { width: 100%; height: 100%; overflow: hidden; }
+  .passenger-shell {
+    box-sizing: border-box;
+    display: flex;
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 16px calc(78px + env(safe-area-inset-bottom));
+  }
+  .passenger-top { flex: 0 0 58px; }
+  .passenger-heading { flex: 0 0 auto; padding: 14px 2px 8px; }
+  .passenger-heading h1 { font-size: 27px; }
+  #passenger-form { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+  .destination-card { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 10px; }
+  #display-name { min-height: 50px; flex: 0 0 50px; margin-bottom: 10px; }
+  .map-picker { display: flex; min-height: 0; flex: 1; flex-direction: column; touch-action: none; }
+  .pin-map { height: auto; min-height: 0; flex: 1; touch-action: none; }
+  .phone-submit-bar { padding-right: 16px; padding-left: 16px; }
+}
 .order-number.order-number-tone-4 { color: #67551d; background: #f3e4ad; }
