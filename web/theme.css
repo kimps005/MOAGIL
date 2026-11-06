@@ -402,7 +402,7 @@ body:not(.passenger-body) .avatar-tone-4 { background: #f3e4ad; }
   #passenger-form { display: flex; min-height: 0; flex: 1; flex-direction: column; }
   .destination-card { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 10px; }
   #display-name { min-height: 50px; flex: 0 0 50px; margin-bottom: 10px; }
-  .map-picker { display: flex; min-height: 0; flex: 1; flex-direction: column; touch-action: none; }
+  .map-picker { display: flex; min-height: 0; flex: 1; flex-direction: column; }
   .pin-map { height: auto; min-height: 0; flex: 1; touch-action: none; }
   .phone-submit-bar { padding-right: 16px; padding-left: 16px; }
 }

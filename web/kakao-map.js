@@ -6,14 +6,14 @@
     return new kakao.maps.LatLng(Number(point.lat), Number(point.lon));
   }
 
-  function createMap(element, center, level, { showZoomControl = true } = {}) {
+  function createMap(element, center, level) {
     const map = new kakao.maps.Map(element, {
       center: latLng(center),
       level,
       mapTypeId: kakao.maps.MapTypeId.ROADMAP,
     });
     element.dataset.mapProvider = 'kakao';
-    if (showZoomControl) map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+    map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
     setTimeout(() => map.relayout(), 0);
     return map;
   }
@@ -141,9 +141,7 @@
   }
 
   function createPassengerMap(element, point, onChange) {
-    const map = createMap(element, point, 4, { showZoomControl: false });
-    map.setDraggable(false);
-    map.setZoomable(false);
+    const map = createMap(element, point, 4);
     const marker = new kakao.maps.Marker({
       map,
       position: latLng(point),
