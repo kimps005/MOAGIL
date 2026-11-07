@@ -4,9 +4,25 @@
 
 동승자는 QR로 참여해 이름과 목적지를 등록합니다. 운전자는 차량 화면에서 참가 현황과 추천 순서를 확인하고, 다음 하차 목적지를 Pleos 내비게이션으로 전달할 수 있습니다.
 
-**공모전 제출 APK (2026-11-07):** [서명된 Pleos ARM64 release APK](apk/MOAGIL_Moagil_release.apk)를 `apk/`에 추가했습니다. 파일은 MOAGIL 팀명과 모아길 앱명으로 지었으며, CPU 환경이 다르면 알맞은 APK가 필요합니다. [파일 안내와 SHA-256](apk/README.md)과 [제출 점검](docs/submission.md)을 확인하세요.
+**공모전 제출물:** [시연 영상](https://youtu.be/u-7vw_0MuKI) · [서명된 Pleos ARM64 APK](apk/MOAGIL_Moagil_release.apk) · [GitHub 저장소](https://github.com/kimps005/MOAGIL)
 
 바로 체험하려면 [서비스 소개](https://moagil-eta.vercel.app/) 또는 [운전자 화면](https://moagil-eta.vercel.app/app)을 여세요. 배포된 서버에 연결하는 경우 별도의 Kakao 키 입력이나 로컬 서버 실행은 필요하지 않습니다.
+
+## 공모전 제출 정보
+
+| 제출 항목 | 제출 내용 |
+|---|---|
+| 접수양식·기획서 (필수) | [공식 접수양식 및 개인정보 수집·이용 동의서 DOCX](https://appdevchallenge.auto-hmg.io/downloads/contest-application-consent.docx)을 내려받아 작성합니다. |
+| 시연 영상 (선택) | [MOAGIL 시연 영상 YouTube 링크](https://youtu.be/u-7vw_0MuKI) |
+| GitHub 저장소 (선택) | [kimps005/MOAGIL](https://github.com/kimps005/MOAGIL) · 소스 코드 포함 |
+| 실행 APK (선택) | [MOAGIL_Moagil_release.apk](apk/MOAGIL_Moagil_release.apk) · Pleos/AAOS ARM64용 · [파일 정보와 SHA-256](apk/README.md) |
+| 숏폼 링크 (선택) | 본상 가산점은 없으며 별도 특별상으로 운영됩니다. 참여 우수작 1팀에 상금 50만 원과 현대자동차그룹 공식 행사 초청이 안내되어 있습니다. |
+
+시연 영상·GitHub 저장소·APK는 선택 제출이며, 1차 접수 때 제출하면 산출물 수준에 따라 가산점이 부여됩니다. 2차 PT 대상 팀은 PT 전까지 실제 동작 가능한 앱을 완성해야 합니다.
+
+접수 기간은 **2026-10-21부터 2026-11-15까지**입니다. 개인 또는 팀으로 참가할 수 있고 팀은 대표자를 포함해 최대 5명입니다. 접수 메일은 `appdevchallenge@hyundai-partners.com`이며 제목은 `[차량용 앱 개발 공모전] 팀명(개인은 성명)_대표자명` 형식입니다. 참가자 전원이 각자 동의 여부·서명·날짜를 작성하고, 대표자는 팀원 전원을 참조(CC)에 포함해야 합니다. 작성된 개인정보 동의서는 공개 저장소 대신 접수 이메일에 첨부하세요.
+
+수정 제출은 최초 제출에 사용한 이메일 주소에서 제목 앞에 `[수정제출]`을 붙여 보냅니다. 전체 제출물과 모든 참가자의 서명 동의서를 다시 첨부하고 팀원 전원을 CC에 포함합니다. 제출 요건과 확인 내역은 [공모전 제출 점검](docs/submission.md)에 정리했습니다.
 
 ## 서비스 흐름
 
@@ -146,7 +162,17 @@ Pleos 변형은 `FUSED_LOCATION`, `CAR_SPEED`, `CAR_POWERTRAIN` 및 NaviHelper �
 
 Mock과 Pleos 빌드는 서로 다른 패키지로 설치됩니다. 두 변형을 함께 설치하면 앱 아이콘이 두 개 표시됩니다. Pleos 에뮬레이터 시험에는 Pleos 변형만 설치하세요.
 
-**검증 상태:** 2026-11-07에 공개 웹 서비스의 Kakao 지도 타일 표시와 실제 Kakao Mobility 경로·참가·하차 흐름을 확인했습니다. Android 단위 검사와 Pleos release 빌드 결과, APK 제출의 남은 조건은 [제출 점검](docs/submission.md)에 기록합니다. Pleos 앱의 최신 버전 설치·지도 표시·차량 위치·속도·기어 신호와 실차 주행은 이번 점검에서 확인하지 않았습니다. 상세 이력은 [검증 문서](docs/validation.md)를 참고하세요.
+### 제출 APK 설치·실행
+
+제출 APK는 Android API 28 이상이 설치된 Pleos/AAOS ARM64 차량 환경용입니다. 일반 스마트폰 앱이 아니며 Pleos NaviHelper와 차량 권한이 필요합니다. 기기를 USB/ADB로 연결한 뒤 저장소 루트에서 설치합니다.
+
+```powershell
+adb install apk/MOAGIL_Moagil_release.apk
+```
+
+설치 후 Pleos 앱 목록에서 **모아길 Pleos**를 실행합니다. APK는 기본 배포 서버 `https://moagil-eta.vercel.app`에 연결합니다.
+
+**검증 상태:** 2026-11-07에 공개 웹 서비스의 Kakao 지도 타일 표시와 실제 Kakao Mobility 경로·참가·하차 흐름을 확인했습니다. 서명된 Pleos release APK를 빌드하고 APK 서명·설정을 확인했으며, 동일 인증서의 x86_64 변형은 격리 Pleos 에뮬레이터에서 설치·실행했습니다. 실차 ARM64 설치, 차량 위치·속도·기어 신호 수신 및 실주행은 확인하지 않았습니다. APK 제출 상태와 남은 조건은 [제출 점검](docs/submission.md), 상세 이력은 [검증 문서](docs/validation.md)를 참고하세요.
 
 ## 테스트 및 검증
 

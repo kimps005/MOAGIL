@@ -14,7 +14,7 @@
 | 제출 APK | 충족 · 서명된 [MOAGIL_Moagil_release.apk](../apk/MOAGIL_Moagil_release.apk), Pleos ARM64 | 실제 참가 팀명이 MOAGIL과 다르면 파일명과 설명 변경 |
 | 서명·실행 확인 | v2 서명 및 `debuggable` 비활성 확인; 동일 키의 x86_64 Pleos APK 실행 확인 | 실차 ARM64 설치와 차량 권한 신호는 별도 시험 |
 | README | 앱 소개, 실행 방법, 환경 설정, APK 위치 기재 | 접수양식에 같은 저장소·APK 경로 기록 |
-| 시연 영상 | 사용자가 영상 제작 완료; YouTube 업로드와 공개 링크는 사용자가 진행 예정 | 선택 제출; 영상 링크를 접수양식에 기재 |
+| 시연 영상 | 제작 및 YouTube 링크 확보 · [MOAGIL 시연 영상](https://youtu.be/u-7vw_0MuKI) | 선택 제출; 접수양식에 영상 링크 기재 |
 | 필수 접수양식·동의서 | 저장소에서 작성·서명본 확인 불가 | [공식 양식 DOCX](https://appdevchallenge.auto-hmg.io/downloads/contest-application-consent.docx)에 기획 내용을 쓰고 참가자 전원(최대 5인)이 개별 동의·서명·날짜 작성 |
 | 숏폼 챌린지 | 링크 미기재 | 선택 사항; 본상 가산점은 없고 별도 특별상 신청 |
 
