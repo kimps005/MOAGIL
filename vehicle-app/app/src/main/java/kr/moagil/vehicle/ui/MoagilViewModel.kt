@@ -116,6 +116,8 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveHomeDestination(point: Point) = saveDestination("home", point)
     fun saveWorkDestination(point: Point) = saveDestination("work", point)
+    fun updateHomeDestination(point: Point) = updateSavedDestination("home", point)
+    fun updateWorkDestination(point: Point) = updateSavedDestination("work", point)
 
     fun selectHomeDestination() {
         val point = _state.value.homeDestination ?: return
@@ -156,6 +158,15 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
         }
+    }
+
+    fun clearDestinationSearch() {
+        destinationSearchJob?.cancel()
+        _state.value = _state.value.copy(
+            destinationSearchLoading = false,
+            destinationSearchError = null,
+            destinationSearchResults = emptyList(),
+        )
     }
 
     fun setFinalDestination(point: Point?, label: String? = null) = driverAction {
@@ -639,6 +650,38 @@ class MoagilViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = when (slot) {
             "home" -> _state.value.copy(homeDestination = point, notice = "집 주소를 이 기기에 저장했습니다.")
             else -> _state.value.copy(workDestination = point, notice = "회사 주소를 이 기기에 저장했습니다.")
+        }
+    }
+
+    private fun updateSavedDestination(slot: String, point: Point) {
+        require(slot in setOf("home", "work"))
+        val title = if (slot == "home") "집" else "회사"
+        val finalLabelPrefix = "$title ·"
+        val current = _state.value.session
+        if (current?.finalPoint?.label?.startsWith(finalLabelPrefix) != true) {
+            saveDestination(slot, point)
+            return
+        }
+
+        driverAction {
+            ensureParked()
+            val credentials = requireCredentials()
+            val session = requireSession()
+            if (session.finalPoint?.label?.startsWith(finalLabelPrefix) != true) {
+                saveDestination(slot, point)
+                return@driverAction
+            }
+            val finalPoint = point.copy(label = "$title · ${point.label}")
+            _state.value = _state.value.copy(routeUpdating = true)
+            val updated = MoagilApi(credentials.apiBaseUrl).saveSettings(
+                credentials,
+                session,
+                finalPoint,
+                _state.value.priorityId,
+                routePreference = session.routePreference,
+            )
+            saveDestination(slot, point)
+            acceptSession(updated, "$title 주소를 수정하고 최종 목적지를 갱신했습니다.")
         }
     }
 

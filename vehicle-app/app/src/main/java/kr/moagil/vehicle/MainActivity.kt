@@ -52,6 +52,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -530,6 +531,15 @@ private fun LiveStopsPanel(
 ) {
     var confirmPleosRoute by remember { mutableStateOf(false) }
     var showDestinationSearch by remember { mutableStateOf(false) }
+    var editingDestinationSlot by remember { mutableStateOf<SavedDestinationSlot?>(null) }
+    val openDestinationSearch = {
+        editingDestinationSlot = null
+        showDestinationSearch = true
+    }
+    val closeDestinationSearch = {
+        showDestinationSearch = false
+        editingDestinationSlot = null
+    }
     val currentTimeMillis by produceState(initialValue = System.currentTimeMillis()) {
         while (true) {
             delay(60_000L)
@@ -537,7 +547,7 @@ private fun LiveStopsPanel(
         }
     }
     if (showDestinationSearch) {
-        FinalDestinationSearchDialog(state, model) { showDestinationSearch = false }
+        FinalDestinationSearchDialog(state, model, editingDestinationSlot, closeDestinationSearch)
     }
     if (confirmPleosRoute) {
         AlertDialog(
@@ -690,12 +700,19 @@ private fun LiveStopsPanel(
                         onClick = {
                             when {
                                 homeSelected -> model.setFinalDestination(null)
-                                state.homeDestination == null -> showDestinationSearch = true
+                                state.homeDestination == null -> openDestinationSearch()
                                 else -> model.selectHomeDestination()
                             }
                         },
                         enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
+                        editContentDescription = "집 주소 수정",
+                        onEdit = if (state.homeDestination != null) {
+                            {
+                                editingDestinationSlot = SavedDestinationSlot.HOME
+                                showDestinationSearch = true
+                            }
+                        } else null,
                     )
                     DriverChoiceButton(
                         label = when {
@@ -707,17 +724,24 @@ private fun LiveStopsPanel(
                         onClick = {
                             when {
                                 workSelected -> model.setFinalDestination(null)
-                                state.workDestination == null -> showDestinationSearch = true
+                                state.workDestination == null -> openDestinationSearch()
                                 else -> model.selectWorkDestination()
                             }
                         },
                         enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
+                        editContentDescription = "회사 주소 수정",
+                        onEdit = if (state.workDestination != null) {
+                            {
+                                editingDestinationSlot = SavedDestinationSlot.WORK
+                                showDestinationSearch = true
+                            }
+                        } else null,
                     )
                     DriverChoiceButton(
                         label = "직접 선택",
                         selected = finalLabel.startsWith("직접 목적지 ·"),
-                        onClick = { showDestinationSearch = true },
+                        onClick = openDestinationSearch,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -848,6 +872,8 @@ private fun DriverChoiceButton(
     selected: Boolean,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    editContentDescription: String? = null,
+    onEdit: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     OutlinedButton(
@@ -864,13 +890,27 @@ private fun DriverChoiceButton(
         ),
         contentPadding = PaddingValues(horizontal = 4.dp),
     ) {
-        Text(
-            text = label,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = label,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (onEdit != null) {
+                IconButton(onClick = onEdit, enabled = enabled, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_edit_24),
+                        contentDescription = editContentDescription,
+                        tint = if (selected) Color.White else Mint,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1136,18 +1176,56 @@ private fun SavedDestinationButton(
     }
 }
 
+private enum class SavedDestinationSlot { HOME, WORK }
+
 @Composable
-private fun FinalDestinationSearchDialog(state: DriverUiState, model: MoagilViewModel, onDismiss: () -> Unit) {
-    var query by remember { mutableStateOf("") }
+private fun FinalDestinationSearchDialog(
+    state: DriverUiState,
+    model: MoagilViewModel,
+    editingSlot: SavedDestinationSlot? = null,
+    onDismiss: () -> Unit,
+) {
+    var query by remember(editingSlot) {
+        mutableStateOf(
+            when (editingSlot) {
+                SavedDestinationSlot.HOME -> state.homeDestination?.label.orEmpty()
+                SavedDestinationSlot.WORK -> state.workDestination?.label.orEmpty()
+                null -> ""
+            },
+        )
+    }
+    LaunchedEffect(editingSlot) { model.clearDestinationSearch() }
+    val selectedFinalForEdit = when (editingSlot) {
+        SavedDestinationSlot.HOME -> state.session?.finalPoint?.label?.startsWith("집 ·") == true
+        SavedDestinationSlot.WORK -> state.session?.finalPoint?.label?.startsWith("회사 ·") == true
+        null -> false
+    }
+    val canSaveEdit = !state.busy && !state.routeUpdating && (!selectedFinalForEdit || state.canOperate)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("최종 목적지 검색") },
+        title = {
+            Text(
+                when (editingSlot) {
+                    SavedDestinationSlot.HOME -> "집 주소 수정"
+                    SavedDestinationSlot.WORK -> "회사 주소 수정"
+                    null -> "최종 목적지 검색"
+                },
+            )
+        },
         text = {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 520.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("검색한 장소를 이번 목적지로 쓰거나 집·회사 주소로 저장할 수 있습니다.", color = Muted, fontSize = 13.sp)
+                Text(
+                    when (editingSlot) {
+                        SavedDestinationSlot.HOME -> "새 장소를 검색해 저장된 집 주소를 바꿉니다."
+                        SavedDestinationSlot.WORK -> "새 장소를 검색해 저장된 회사 주소를 바꿉니다."
+                        null -> "검색한 장소를 이번 목적지로 쓰거나 집·회사 주소로 저장할 수 있습니다."
+                    },
+                    color = Muted,
+                    fontSize = 13.sp,
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = query,
@@ -1161,6 +1239,9 @@ private fun FinalDestinationSearchDialog(state: DriverUiState, model: MoagilView
                     }
                 }
                 state.destinationSearchError?.let { Text(it, color = Alert, fontSize = 12.sp) }
+                if (editingSlot != null && selectedFinalForEdit && !state.canOperate) {
+                    Text("현재 목적지로 안내 중인 주소는 차량이 P 기어로 정차한 뒤 바꿀 수 있습니다.", color = Alert, fontSize = 12.sp)
+                }
                 if (state.destinationSearchLoading) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp) }
                 }
@@ -1175,9 +1256,23 @@ private fun FinalDestinationSearchDialog(state: DriverUiState, model: MoagilView
                         ) {
                             Text(point.label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                TextButton(onClick = { model.selectCustomDestination(point); onDismiss() }, enabled = state.canOperate && !state.busy && !state.routeUpdating, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("이번 목적지") }
-                                TextButton(onClick = { model.saveHomeDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("집에 저장") }
-                                TextButton(onClick = { model.saveWorkDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("회사에 저장") }
+                                if (editingSlot == null) {
+                                    TextButton(onClick = { model.selectCustomDestination(point); onDismiss() }, enabled = state.canOperate && !state.busy && !state.routeUpdating, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("이번 목적지") }
+                                    TextButton(onClick = { model.saveHomeDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("집에 저장") }
+                                    TextButton(onClick = { model.saveWorkDestination(point) }, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp)) { Text("회사에 저장") }
+                                } else {
+                                    TextButton(
+                                        onClick = {
+                                            if (editingSlot == SavedDestinationSlot.HOME) model.updateHomeDestination(point)
+                                            else model.updateWorkDestination(point)
+                                            onDismiss()
+                                        },
+                                        enabled = canSaveEdit,
+                                        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp),
+                                    ) {
+                                        Text(if (editingSlot == SavedDestinationSlot.HOME) "집 주소로 변경" else "회사 주소로 변경")
+                                    }
+                                }
                             }
                         }
                     }
