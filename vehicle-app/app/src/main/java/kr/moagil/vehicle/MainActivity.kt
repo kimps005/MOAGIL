@@ -664,6 +664,8 @@ private fun LiveStopsPanel(
 
             if (session.state in setOf("COLLECTING", "PLANNED")) {
                 val finalLabel = session.finalPoint?.label.orEmpty()
+                val homeSelected = finalLabel.startsWith("집 ·")
+                val workSelected = finalLabel.startsWith("회사 ·")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("마지막 도착지", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -679,16 +681,36 @@ private fun LiveStopsPanel(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     DriverChoiceButton(
-                        label = if (state.homeDestination == null) "집 등록" else "집 도착",
-                        selected = finalLabel.startsWith("집 ·"),
-                        onClick = { if (state.homeDestination == null) showDestinationSearch = true else model.selectHomeDestination() },
+                        label = when {
+                            homeSelected -> "집 해제"
+                            state.homeDestination == null -> "집 등록"
+                            else -> "집 도착"
+                        },
+                        selected = homeSelected,
+                        onClick = {
+                            when {
+                                homeSelected -> model.setFinalDestination(null)
+                                state.homeDestination == null -> showDestinationSearch = true
+                                else -> model.selectHomeDestination()
+                            }
+                        },
                         enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
                     )
                     DriverChoiceButton(
-                        label = if (state.workDestination == null) "회사 등록" else "회사 도착",
-                        selected = finalLabel.startsWith("회사 ·"),
-                        onClick = { if (state.workDestination == null) showDestinationSearch = true else model.selectWorkDestination() },
+                        label = when {
+                            workSelected -> "회사 해제"
+                            state.workDestination == null -> "회사 등록"
+                            else -> "회사 도착"
+                        },
+                        selected = workSelected,
+                        onClick = {
+                            when {
+                                workSelected -> model.setFinalDestination(null)
+                                state.workDestination == null -> showDestinationSearch = true
+                                else -> model.selectWorkDestination()
+                            }
+                        },
                         enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
                     )
