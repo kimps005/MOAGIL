@@ -4,6 +4,10 @@
 
 동승자는 QR로 참여해 이름과 목적지를 등록합니다. 운전자는 차량 화면에서 참가 현황과 추천 순서를 확인하고, 다음 하차 목적지를 Pleos 내비게이션으로 전달할 수 있습니다.
 
+**공모전 제출 점검 (2026-11-07):** 공개 소스와 웹 서비스는 확인했지만, `apk/`에는 11월 5일에 갱신한 debug APK만 있습니다. 최신 Android 소스를 반영한 서명된 release APK를 `팀명_앱이름_release.apk` 형식으로 업로드하기 전에는 APK 제출 요건을 충족하지 않습니다. [제출 항목별 점검과 남은 작업](docs/submission.md)을 확인하세요.
+
+바로 체험하려면 [서비스 소개](https://moagil-eta.vercel.app/) 또는 [운전자 화면](https://moagil-eta.vercel.app/app)을 여세요. 배포된 서버에 연결하는 경우 별도의 Kakao 키 입력이나 로컬 서버 실행은 필요하지 않습니다.
+
 ## 서비스 흐름
 
 1. 차량 화면에서 이동 세션과 초대 QR을 엽니다.
@@ -17,9 +21,9 @@
 | 영역 | 기능 |
 |---|---|
 | 동승자 참여 | 세션별 QR, 이름 입력, 장소 검색, 지도 핀 조정, 최대 4명, 전용 진행 화면의 하차 순서·예상 시간, 출발 전 목적지 수정 |
-| 차량 화면 | 세션 동기화, 추천 순서 및 수동 조정. Pleos 변형은 내장 지도를 표시하지 않고 Pleos 내비를 사용 |
+| 차량 화면 | 세션 동기화, 추천 순서 및 수동 조정, Kakao 지도 표시. 실제 길안내는 Pleos 내비를 사용 |
 | 경로 추천 | 실제 도로망 비용을 기준으로 가능한 하차 순서를 비교하고 선택 경로를 표시 |
-| Pleos 연동 | NaviHelper를 통한 순서 기반 경유지·목적지 구간 전달 |
+| Pleos 연동 | 선택한 하차 순서의 다음 목적지를 하나씩 NaviHelper에 전달 |
 | 차량 상태 | Pleos FusedLocation과 AAOS 차량 속도·기어 정보를 읽어 출발지와 운전자 조작 조건에 반영 |
 | 웹 지도 | Kakao Maps 표시와 Kakao Local 검색 |
 
@@ -92,7 +96,7 @@ Vercel 프로젝트의 서버 환경 변수에 다음 항목을 설정합니다.
 
 이 값들은 브라우저 코드나 GitHub 저장소에 넣지 말고 Vercel의 서버 환경 변수로 저장합니다. 배포 후 Kakao Developers의 JavaScript SDK 도메인에는 `https://프로젝트이름.vercel.app`을 등록합니다. 동승자 초대는 이미 세션별 고유 ID와 초대 토큰을 사용하는 `/join/<세션 ID>` 경로를 사용합니다.
 
-현재 API는 Vercel Python 함수 진입점과 Supabase 저장소를 사용할 수 있게 준비되어 있습니다. 실제 운영 주소를 만들려면 Vercel 프로젝트에 이 GitHub 저장소를 연결하고, 위 환경 변수에 본인 Kakao 키와 Supabase 연결 문자열을 저장한 뒤 배포해야 합니다.
+현재 공개 배포 주소는 `https://moagil-eta.vercel.app`입니다. 2026-11-07에 공개 API와 데이터베이스 상태, 실제 세션·경로 흐름을 확인했습니다. 별도 배포를 만들려면 Vercel 프로젝트에 이 GitHub 저장소를 연결하고, 위 환경 변수에 본인 Kakao 키와 Supabase 연결 문자열을 저장합니다.
 
 ## 경로 계산
 
@@ -132,7 +136,7 @@ Kakao Maps를 표시하려면 JavaScript 키를 `MOAGIL_KAKAO_JAVASCRIPT_KEY`에
 
 ### 빌드
 
-JDK 17, Android SDK API 34 및 Pleos SDK 저장소 접근이 필요합니다.
+JDK 17, Android SDK API 34, Build Tools 36.0.0 및 Pleos SDK 저장소 접근이 필요합니다.
 
 ```powershell
 cd vehicle-app
@@ -143,7 +147,7 @@ Pleos 변형은 `FUSED_LOCATION`, `CAR_SPEED`, `CAR_POWERTRAIN` 및 NaviHelper �
 
 Mock과 Pleos 빌드는 서로 다른 패키지로 설치됩니다. 두 변형을 함께 설치하면 앱 아이콘이 두 개 표시됩니다. Pleos 에뮬레이터 시험에는 Pleos 변형만 설치하세요.
 
-**검증 상태:** Kakao Mobility 경로 계산과 웹 경로 흐름, Pleos APK 빌드·실행은 확인했습니다. 실제 Kakao 지도 표시는 JavaScript 키의 도메인 허용 설정이 거절되어 재확인이 필요합니다. Pleos 차량 위치·속도·기어 신호와 실차 주행은 미검증입니다. 상세 기록은 [검증 문서](docs/validation.md)를 참고하세요.
+**검증 상태:** 2026-11-07에 공개 웹 서비스의 Kakao 지도 타일 표시와 실제 Kakao Mobility 경로·참가·하차 흐름을 확인했습니다. Android 단위 검사와 Pleos release 빌드 결과, APK 제출의 남은 조건은 [제출 점검](docs/submission.md)에 기록합니다. Pleos 앱의 최신 버전 설치·지도 표시·차량 위치·속도·기어 신호와 실차 주행은 이번 점검에서 확인하지 않았습니다. 상세 이력은 [검증 문서](docs/validation.md)를 참고하세요.
 
 ## 테스트 및 검증
 
@@ -171,6 +175,7 @@ npm run test:e2e
 
 ## 문서
 
+- [공모전 제출 점검과 남은 작업](docs/submission.md)
 - [PRD](docs/PRD.md)
 - [아키텍처와 설계 결정](docs/architecture.md)
 - [검증 기록](docs/validation.md)

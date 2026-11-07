@@ -16,7 +16,9 @@ local.properties
 *.pem
 
 # Java / Android build output
+.tools/
 .gradle/
+.kotlin/
 **/build/
 **/captures/
 vehicle-app/.tools/
