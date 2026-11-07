@@ -19,6 +19,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -662,6 +663,7 @@ private fun LiveStopsPanel(
             }
 
             if (session.state in setOf("COLLECTING", "PLANNED")) {
+                val finalLabel = session.finalPoint?.label.orEmpty()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("마지막 도착지", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -676,23 +678,26 @@ private fun LiveStopsPanel(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(
+                    DriverChoiceButton(
+                        label = if (state.homeDestination == null) "집 등록" else "집 도착",
+                        selected = finalLabel.startsWith("집 ·"),
                         onClick = { if (state.homeDestination == null) showDestinationSearch = true else model.selectHomeDestination() },
                         enabled = state.homeDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text(if (state.homeDestination == null) "집 등록" else "집 도착", maxLines = 1) }
-                    OutlinedButton(
+                    )
+                    DriverChoiceButton(
+                        label = if (state.workDestination == null) "회사 등록" else "회사 도착",
+                        selected = finalLabel.startsWith("회사 ·"),
                         onClick = { if (state.workDestination == null) showDestinationSearch = true else model.selectWorkDestination() },
                         enabled = state.workDestination == null || (state.canOperate && !state.busy && !state.routeUpdating),
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text(if (state.workDestination == null) "회사 등록" else "회사 도착", maxLines = 1) }
-                    OutlinedButton(
+                    )
+                    DriverChoiceButton(
+                        label = "직접 선택",
+                        selected = finalLabel.startsWith("직접 목적지 ·"),
                         onClick = { showDestinationSearch = true },
-                        modifier = Modifier.weight(1.2f),
-                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 6.dp),
-                    ) { Text("직접 선택", maxLines = 1) }
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 CompactInviteQr(session, joinBaseUrl, inviteToken)
             }
@@ -705,13 +710,8 @@ private fun LiveStopsPanel(
                     Text(if (state.canOperate) "이 순서로 안내 시작" else "정차 확인 후 안내 시작", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("차량 정차 상태", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                }
-                if (BuildConfig.PLEOS_NATIVE_NAVIGATION) {
-                    Text(if (state.canOperate) state.vehicleContext.message else "차량 상태 확인 필요", color = if (state.canOperate) Success else Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                } else {
+            if (!BuildConfig.PLEOS_NATIVE_NAVIGATION) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Switch(checked = state.simulatedParked, onCheckedChange = { model.toggleParked() }, enabled = !state.busy)
                 }
             }
@@ -807,29 +807,48 @@ private fun FriendStopRow(
 
 @Composable
 private fun RoutePreferenceToggle(selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Color(0xFFDDE2F5), RoundedCornerShape(10.dp)).padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("FREE" to "무료 우선", "TIME" to "시간 우선").forEach { (value, label) ->
-            val isSelected = selected == value
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Color(0xFF25283A) else Color.Transparent)
-                    .clickable(enabled = enabled && !isSelected) { onSelect(value) }
-                    .semantics { contentDescription = if (isSelected) "$label 경로, 선택됨" else "$label 경로 선택" }
-                    .padding(horizontal = 8.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    color = if (isSelected) Color.White else Color(0xFF59627B),
-                    fontSize = 17.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
+            DriverChoiceButton(
+                label = label,
+                selected = selected == value,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(value) },
+            )
         }
+    }
+}
+
+@Composable
+private fun DriverChoiceButton(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (selected) Mint else Border),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (selected) Mint else Panel,
+            contentColor = if (selected) Color.White else Color(0xFF59627B),
+            disabledContainerColor = if (selected) Mint.copy(alpha = 0.45f) else PanelRaised,
+            disabledContentColor = if (selected) Color.White else Muted,
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
