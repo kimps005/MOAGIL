@@ -47,7 +47,7 @@ class ServerGuardTests(unittest.TestCase):
         value.server = SimpleNamespace(server_port=8080)
         return value
 
-    def test_map_config_never_selects_an_alternative_provider(self):
+    def test_map_config_uses_the_kakao_map_provider(self):
         class ResponseHandler(Handler):
             def _path(self):
                 return "/api/config"
@@ -56,10 +56,7 @@ class ServerGuardTests(unittest.TestCase):
                 return status, payload
 
         handler = object.__new__(ResponseHandler)
-        with patch.dict(os.environ, {
-            "MOAGIL_KAKAO_JAVASCRIPT_KEY": "",
-            "MOAGIL_NAVER_CLIENT_ID": "configured-naver-id",
-        }):
+        with patch.dict(os.environ, {"MOAGIL_KAKAO_JAVASCRIPT_KEY": ""}):
             status, payload = handler.do_GET()
 
         self.assertEqual(200, status)

@@ -106,7 +106,7 @@ async function main() {
       const configResponse = await page.request.get(baseUrl + '/api/config');
       assert(configResponse.ok(), '경로 제공자 설정을 확인하지 못했습니다.');
       const config = await configResponse.json();
-      assert(['kakao', 'osrm', 'naver'].includes(config.routingProvider), '실제 도로 경로 제공자(Kakao Mobility, OSRM 또는 NAVER)를 사용해 서버를 시작한 뒤 영상을 촬영하세요.');
+      assert(config.routingProvider === 'kakao', 'Kakao Mobility 실제 도로 경로를 사용해 서버를 시작한 뒤 영상을 촬영하세요.');
     }
     await waitScene(page, '여러 목적지, 순서는 한 번에. · 모아길 시연 프로토타입', record ? 9000 : quickWait);
 

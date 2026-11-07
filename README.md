@@ -4,7 +4,7 @@
 
 동승자는 QR로 참여해 이름과 목적지를 등록합니다. 운전자는 차량 화면에서 참가 현황과 추천 순서를 확인하고, 다음 하차 목적지를 Pleos 내비게이션으로 전달할 수 있습니다.
 
-**공모전 제출 점검 (2026-11-07):** 공개 소스와 웹 서비스는 확인했지만, `apk/`에는 11월 5일에 갱신한 debug APK만 있습니다. 최신 Android 소스를 반영한 서명된 release APK를 `팀명_앱이름_release.apk` 형식으로 업로드하기 전에는 APK 제출 요건을 충족하지 않습니다. [제출 항목별 점검과 남은 작업](docs/submission.md)을 확인하세요.
+**공모전 제출 APK (2026-11-07):** [서명된 Pleos ARM64 release APK](apk/MOAGIL_Moagil_release.apk)를 `apk/`에 추가했습니다. 파일은 MOAGIL 팀명과 모아길 앱명으로 지었으며, CPU 환경이 다르면 알맞은 APK가 필요합니다. [파일 안내와 SHA-256](apk/README.md)과 [제출 점검](docs/submission.md)을 확인하세요.
 
 바로 체험하려면 [서비스 소개](https://moagil-eta.vercel.app/) 또는 [운전자 화면](https://moagil-eta.vercel.app/app)을 여세요. 배포된 서버에 연결하는 경우 별도의 Kakao 키 입력이나 로컬 서버 실행은 필요하지 않습니다.
 
@@ -117,7 +117,6 @@ Pleos 화면에는 Kakao 지도가 표시됩니다. 기본 차량 내비게이�
 | 변수 | 용도 |
 |---|---|
 | `MOAGIL_PUBLIC_BASE_URL` | QR에서 참가자가 열 서버 주소 |
-| `MOAGIL_ROUTING_PROVIDER` | `kakao` (경로 제공자는 Kakao Mobility로 고정) |
 | `MOAGIL_KAKAO_REST_API_KEY` | Kakao Local 장소 검색 및 Kakao Mobility 실시간 길찾기에 사용하는 REST API 키 |
 | `MOAGIL_KAKAO_JAVASCRIPT_KEY` | 웹에서 Kakao 지도를 표시하는 JavaScript 키 |
 | `MOAGIL_DB` | SQLite 데이터베이스 파일 위치 변경 |

@@ -47,7 +47,7 @@
                                                            ▼
 Android 차량 앱 ─── 드라이버 토큰 / JSON / 2초 폴링 ── FastAPI ─ SQLite
   Compose + 실제 QR                                       ├─ MockRouteProvider
-  NavigationPort -> MockNavigation                       └─ NaverDirectionsProvider (P1)
+  NavigationPort -> MockNavigation                       └─ Kakao Mobility Directions
                  -> PleosNavigation (P1 빌드 조건부)
 ```
 
@@ -180,7 +180,7 @@ P1 `PleosNavigationPort`: 공식 [NaviHelper 소개](https://document.pleos.ai/d
 
 현재 구현은 선택한 순서의 다음 최대 세 지점(경유지 `FIRST`, `SECOND`, 목적지)을 한 구간으로 요청하고, 구간 내 정차는 그대로 유지한다. 현재 요청 구간을 마친 뒤에는 새 위치 기준으로 다음 구간을 요청한다. 구간마다 목적지 변경 안내와 운전자 확인을 거친다. 더 먼 구간에도 순서가 유지되는지, 임의 좌표의 처리, 기존 내비 경로 교체 및 실제 안내 동작은 Pleos 대상 AVD·차량에서 확인해야 한다. SDK 응답 이벤트와 길 안내 시작을 같은 상태로 간주하지 않고, 현재 코드의 목적지 확인은 이벤트 응답에 근거한다. 세부 하차 완료는 자동 판정하지 않고 정차 상태에서 운전자가 확인한다.
 
-화면 정책: Pleos 변형은 내장 OSM/Naver 지도를 표시하지 않고 portrait 모아길 UI만 표시한다. 기본 Pleos 내비와 병렬로 쓰려면 동승자 창의 App Library에서 모아길을 열고 필요하면 동승자 GNB 즐겨찾기에 등록한다. 창 위치는 Pleos 시스템이 관리하며 앱은 자동 창 배치를 요청하지 않는다.
+화면 정책: Pleos 변형은 내장 대체 지도를 표시하지 않고 portrait 모아길 UI만 표시한다. 기본 Pleos 내비와 병렬로 쓰려면 동승자 창의 App Library에서 모아길을 열고 필요하면 동승자 GNB 즐겨찾기에 등록한다. 창 위치는 Pleos 시스템이 관리하며 앱은 자동 창 배치를 요청하지 않는다.
 
 실제 차량 위치: FusedLocation의 제공 상태·권한·정확도 확인 전은 미구현. 공식 프로젝트 가이드에서 FusedLocation은 제공 준비 상태로 설명되는 반면 다른 소개에서 모듈을 열거하는 등 페이지별 시점이 다를 수 있다. 현재 콘솔/문서가 우선이며 SDK 존재 = 사용 승인/구동 완료가 아니다. 필요하면 공식 NaviHelper의 현재 위치 조회도 검증하되 별도 위치 API를 추정하지 않는다. Vehicle SDK/AAOS를 통한 정차 상태도 데이터 정의·권한·동작을 실제 확인 전 UNKNOWN. 특정 퍼미션을 지어내지 않는다.
 
@@ -299,7 +299,7 @@ P1 성공 판정 추가: 실제 네이버 응답과 24개 순서/순서 유지/�
 2. 의존성/계정이 없어도 P0를 끝까지 만들 수 있게 `mock` 경로부터 구성한다. 서버 모델/API/토큰/순열, 웹 참가, Android QR·폴링·계획·모의 내비 순으로 연결한다. P0 요구사항을 순차 구현하고 코드·잠금 파일·README·검증기록·시연 자료를 만든다.
 3. 테스트부터 필요한 수준으로 작성·실행한다. 실제 별도 휴대폰 없이 자동 테스트만 수행했다면 AC02를 미검증으로 남긴다. 임의 값으로 체크하지 않는다. 오류가 있으면 고치고 영향을 받은 검증을 재실행한다.
 4. `docs/validation.md`에 명령, 실행일, 실제 결과, 오류, 차단 이유, P0/P1 구분을 적고 스크린샷은 기밀을 제거한다. 환경 부족으로 막힌 P1은 구체적 요구 사항·다음 명령을 기록하고 P0의 대체 흐름을 완성한다.
-5. 네이버 계정/API 키나 Pleos SDK/에뮬레이터가 이미 제공되면 사용 범위를 공식 문서로 확인하고 실제 연동을 검증한다. 없는 인증정보를 만들거나 사용자에게 비용을 발생시키지 않는다. 외부 연결, 공개 업로드, 저장소 공개 여부는 사용자가 제공한 권한과 선호를 따른다.
+5. Kakao API 키나 Pleos SDK/에뮬레이터가 이미 제공되면 사용 범위를 공식 문서로 확인하고 실제 연동을 검증한다. 없는 인증정보를 만들거나 사용자에게 비용을 발생시키지 않는다. 외부 연결, 공개 업로드, 저장소 공개 여부는 사용자가 제공한 권한과 선호를 따른다.
 6. `.gitignore`를 확인하고 Git 커밋한다. 인증된 GitHub가 있다면 권한과 공개 범위에 맞게 저장소를 생성/연결하고 푸시한다. 불가하면 로컬 저장소·APK·명령·차단 사유를 전달한다. 서명키는 요청 또는 기존 사용자 제공 상황에서만 사용한다.
 7. 최종 답변에 실행 주소, APK 파일 경로, 테스트 결과, 실제/모의 표, 미완료 및 차단 사유, 재현 방법을 제공한다. `성공`은 실제 검사된 것만 적는다. 시연 영상 촬영은 환경이 허용되고 지시가 있을 때 수행하며, 그렇지 않으면 촬영 가능한 앱과 스토리보드를 완성한다.
 
@@ -311,6 +311,5 @@ P1 성공 판정 추가: 실제 네이버 응답과 24개 순서/순서 유지/�
 2. [Pleos Connect SDK 개요](https://document.pleos.ai/docs/pleos-only/connect-sdk-pleos/), [NaviHelper 소개](https://document.pleos.ai/docs/pleos-only/connect-sdk-pleos/NaviHelper/intro): SDK 구성과 목적지/경유지 연동 및 이벤트. 문서 기능 존재는 권한·실차·에뮬레이터 성공의 증거가 아니다.
 3. [NaviHelper 목적지](https://document.pleos.ai/api-reference/connect-sdk-pleos/NaviHelper/destinations), [경유지 포함 요청](https://document.pleos.ai/en/docs/pleos-only/connect-sdk-pleos/NaviHelper/route-with-waypoints), [이벤트 리스너](https://document.pleos.ai/en/api-reference/connect-sdk-pleos/NaviHelper/event-listeners): 문서화된 요청 및 결과 확인. 임의 좌표와 성공의 의미는 별도 확인.
 4. [Pleos 에뮬레이터 설치](https://document.pleos.ai/en/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator), [SDK 접근 신청](https://document.pleos.ai/en/docs/pleos-only/create-my-project): API 28 이상, Gradle 8 이상, API 34 에뮬레이터 및 접근 상태. 실제 상태는 계정과 시점에 종속.
-5. [NAVER Cloud Directions 5](https://api.ncloud-docs.com/docs/en/application-maps-directions5): 실시간 교통 반영, 출발·목적지·최대 5 경유지, 거리/시간 단위, 제공자 에러. 실제 비용·한도·순서 보존·이용 허용 범위는 별도 확인.
 
 **프로토타입은 효과를 제안하고 시연하는 도구다. 사용자 수, 주의 분산 감소, 이동시간 절약, 실제 차량 적용 및 사업성은 검증 전 가설이다.**

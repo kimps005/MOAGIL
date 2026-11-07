@@ -27,9 +27,13 @@ Pleos SDK는 공식 Maven 저장소의 `ai.pleos.playground:NaviHelper:3.0.5`입
 .\gradlew.bat assemblePleosRelease
 ```
 
-현재 프로젝트에는 release 서명 설정이 없어 `app/build/outputs/apk/pleos/release/`에 `*-unsigned.apk`가 생성됩니다. unsigned APK는 설치·제출용 완성본이 아닙니다. Android Studio의 **Generate Signed App Bundle or APK**에서 APK와 `pleosRelease` 변형을 선택해 소유자가 관리하는 release 키로 서명하거나, [Android 공식 서명 안내](https://developer.android.com/studio/publish/app-signing)에 따라 서명합니다. 키와 비밀번호는 Git에 올리지 않습니다.
+`build-submission-apk.ps1`은 첫 실행 시 3,072비트 RSA release 키를 만들고 암호를 현재 Windows 사용자에게 암호화해 `.tools/signing/`에 보관합니다. 이 파일은 Git에 추가되지 않습니다. 같은 Windows 계정에서 아래 명령을 실행하면 Pleos release APK에 서명하고 `apk/MOAGIL_Moagil_release.apk`를 갱신합니다. 기존 키를 유지해야 같은 인증서로 이후 업데이트를 만들 수 있습니다.
 
-서명된 APK는 해당 Pleos 시험 환경에 설치해 참가·지도·내비 흐름을 확인한 뒤 `apk/팀명_앱이름_release.apk` 형식으로 업로드하고 체크섬과 실행 환경을 문서에 기록해야 합니다. 기존 debug APK의 이름만 바꾸면 release 요건을 충족하지 않습니다. [전체 제출 점검](../docs/submission.md)을 참고하세요.
+```powershell
+.\build-submission-apk.ps1
+```
+
+이 스크립트 Mock/Pleos Android 단위 검사를 실행한 뒤 APK를 서명하고 체크섬을 출력합니다. 서명 키 파일과 암호는 계속 비밀로 유지하고 저장소나 채팅에 올리지 않습니다. 일반 Android Studio 절차는 [Android 공식 서명 안내](https://developer.android.com/studio/publish/app-signing)에 나와 있습니다. [제출 점검](../docs/submission.md)을 참고하세요.
 
 기본 연결 주소는 고정 배포 주소 `https://moagil-eta.vercel.app`입니다. 이 주소를 Kakao Developers의 JavaScript SDK 허용 도메인에 등록하면 에뮬레이터와 차량 앱에서 LAN IP가 바뀌어도 같은 허용 주소를 사용합니다. 이전에 저장한 로컬 서버 주소는 새 세션을 만들 때 배포 주소로 자동 전환됩니다. 로컬 서버를 직접 시험할 때만 앱의 서버 주소 설정에서 `http://10.0.2.2:8080` 또는 기기의 LAN 주소를 사용하고 해당 주소를 Kakao 허용 도메인에 추가하세요. 기존 `local.properties`의 `sdk.dir` 줄은 유지하고 이 파일은 Git에 추가하지 않습니다.
 

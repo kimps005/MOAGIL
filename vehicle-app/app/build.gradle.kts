@@ -4,6 +4,17 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseSigningValues = mapOf(
+    "storeFile" to System.getenv("MOAGIL_RELEASE_STORE_FILE").orEmpty().trim(),
+    "storePassword" to System.getenv("MOAGIL_RELEASE_STORE_PASSWORD").orEmpty(),
+    "keyAlias" to System.getenv("MOAGIL_RELEASE_KEY_ALIAS").orEmpty().trim(),
+    "keyPassword" to System.getenv("MOAGIL_RELEASE_KEY_PASSWORD").orEmpty(),
+)
+val releaseSigningConfigured = releaseSigningValues.values.any(String::isNotEmpty)
+if (releaseSigningConfigured && releaseSigningValues.values.any(String::isEmpty)) {
+    error("Complete all MOAGIL_RELEASE_* signing environment variables to sign the release build.")
+}
+
 val kakaoMapJavascriptKey = System.getenv("MOAGIL_KAKAO_JAVASCRIPT_KEY").orEmpty().trim().ifBlank {
     rootProject.file("../.env").takeIf { it.isFile }?.useLines { lines ->
         lines.map(String::trim)
@@ -50,6 +61,17 @@ android {
         buildConfigField("String", "KAKAO_MAP_ORIGIN", "\"$escapedKakaoMapOrigin\"")
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("moagilRelease") {
+                storeFile = file(releaseSigningValues.getValue("storeFile"))
+                storePassword = releaseSigningValues.getValue("storePassword")
+                keyAlias = releaseSigningValues.getValue("keyAlias")
+                keyPassword = releaseSigningValues.getValue("keyPassword")
+            }
+        }
+    }
+
     splits {
         abi {
             isEnable = true
@@ -84,6 +106,7 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["usesCleartextTraffic"] = "false"
+            if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("moagilRelease")
         }
     }
 

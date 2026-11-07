@@ -26,25 +26,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from domain import RouteError, plan_routes, validate_fixed_positions, validate_point, utc_now, evaluate_route
+from domain import RouteError, plan_routes, validate_fixed_positions, validate_point, utc_now
 from routing import (
     KAKAO_ATTRIBUTION,
-    KAKAO_DATA_SOURCE,
     KAKAO_NOTE,
     KAKAO_PROVIDER_VERSION,
-    OSRM_ATTRIBUTION,
-    OSRM_NOTE,
-    OSRM_PROVIDER_VERSION,
-    NAVER_ATTRIBUTION,
-    NAVER_NOTE,
-    NAVER_PROVIDER_VERSION,
     RoutingError,
     KakaoMatrixEvaluator,
     fetch_kakao_route,
-    fetch_naver_route,
-    fetch_route,
-    matrix_evaluator,
-    naver_route_evaluator,
     routing_provider,
 )
 
@@ -1272,60 +1261,42 @@ class Handler(BaseHTTPRequestHandler):
             route_preference = row["route_preference"] or "TIME"
             basis_version = row["version"]
 
-        provider = routing_provider()
-        matrix_points = None
-        traffic_matrix = None
-        if provider in {"osrm", "kakao"}:
-            matrix_points = [start, *[person["point"] for person in passengers]]
-            if final:
-                matrix_points.append(final)
-            if provider == "kakao":
-                evaluator = KakaoMatrixEvaluator(matrix_points, avoid_toll=route_preference == "FREE")
-                traffic_matrix = evaluator.snapshot()
-            else:
-                evaluator = matrix_evaluator(matrix_points)
-        elif provider == "naver":
-            evaluator = naver_route_evaluator()
-        else:
-            evaluator = evaluate_route
+        matrix_points = [start, *[person["point"] for person in passengers]]
+        if final:
+            matrix_points.append(final)
+        evaluator = KakaoMatrixEvaluator(matrix_points, avoid_toll=route_preference == "FREE")
+        traffic_matrix = evaluator.snapshot()
         results = plan_routes(
             start,
             passengers,
             final,
             priority_id,
             evaluator,
-            max_workers=2 if provider == "naver" else 1,
-            timeout_seconds=120 if provider == "naver" else None,
+            max_workers=1,
             fixed_positions=fixed_positions,
         )
         chosen = results[0]
-        if provider in {"osrm", "kakao"}:
-            by_id = {person["id"]: person for person in passengers}
-            route_points = [start, *[by_id[item]["point"] for item in chosen["order"]]]
-            if final:
-                route_points.append(final)
-            if provider == "kakao":
-                matrix_duration_ms = chosen["durationMs"]
-                matrix_fetched_at = chosen["fetchedAt"]
-                chosen = {
-                    **chosen,
-                    **fetch_kakao_route(route_points, avoid_toll=route_preference == "FREE"),
-                    "optimizationDurationMs": matrix_duration_ms,
-                    "optimizationFetchedAt": matrix_fetched_at,
-                    "trafficMatrix": traffic_matrix,
-                }
-            else:
-                chosen = {**chosen, **fetch_route(route_points)}
-        note = KAKAO_NOTE if provider == "kakao" else NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
-        provider_version = KAKAO_PROVIDER_VERSION if provider == "kakao" else NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+        by_id = {person["id"]: person for person in passengers}
+        route_points = [start, *[by_id[item]["point"] for item in chosen["order"]]]
+        if final:
+            route_points.append(final)
+        matrix_duration_ms = chosen["durationMs"]
+        matrix_fetched_at = chosen["fetchedAt"]
+        chosen = {
+            **chosen,
+            **fetch_kakao_route(route_points, avoid_toll=route_preference == "FREE"),
+            "optimizationDurationMs": matrix_duration_ms,
+            "optimizationFetchedAt": matrix_fetched_at,
+            "trafficMatrix": traffic_matrix,
+        }
         snapshot = {
             **chosen,
             "evaluatedCount": len(results),
             "basisVersion": basis_version,
             "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "providerVersion": provider_version,
-            "note": note,
-            "attribution": KAKAO_ATTRIBUTION if provider == "kakao" else NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+            "providerVersion": KAKAO_PROVIDER_VERSION,
+            "note": KAKAO_NOTE,
+            "attribution": KAKAO_ATTRIBUTION,
         }
         with _db_connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -1361,19 +1332,16 @@ class Handler(BaseHTTPRequestHandler):
             route_preference = row["route_preference"] or "TIME"
             basis_version = row["version"]
 
-        provider = routing_provider()
-        estimate = fetch_kakao_route(points, avoid_toll=route_preference == "FREE") if provider == "kakao" else fetch_naver_route(points) if provider == "naver" else fetch_route(points) if provider == "osrm" else evaluate_route(points)
-        note = KAKAO_NOTE if provider == "kakao" else NAVER_NOTE if provider == "naver" else OSRM_NOTE if provider == "osrm" else "시연용 직선거리 추정 · 실제 도로/교통 아님"
-        provider_version = KAKAO_PROVIDER_VERSION if provider == "kakao" else NAVER_PROVIDER_VERSION if provider == "naver" else OSRM_PROVIDER_VERSION if provider == "osrm" else "mock-haversine-v1"
+        estimate = fetch_kakao_route(points, avoid_toll=route_preference == "FREE")
         snapshot = {
             **estimate,
             "order": order,
             "evaluatedCount": old.get("evaluatedCount", 1),
             "basisVersion": basis_version,
             "staleAt": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
-            "providerVersion": provider_version,
-            "note": note,
-            "attribution": KAKAO_ATTRIBUTION if provider == "kakao" else NAVER_ATTRIBUTION if provider == "naver" else OSRM_ATTRIBUTION if provider == "osrm" else None,
+            "providerVersion": KAKAO_PROVIDER_VERSION,
+            "note": KAKAO_NOTE,
+            "attribution": KAKAO_ATTRIBUTION,
         }
         with _db_connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -1505,7 +1473,6 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     _init_db()
-    provider = routing_provider()
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer((os.environ.get("HOST", "0.0.0.0"), port), Handler)
     print("MOAGIL 시연 서버가 준비되었습니다.")
