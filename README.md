@@ -5,7 +5,7 @@
 ## 시연 및 자료
 
 - 시연 영상: [YouTube](https://youtu.be/u-7vw_0MuKI)
-- Pleos 에뮬레이터 시연 영상: [YouTube](https://youtu.be/aYubrDH5uk0)
+- 에뮬레이터 앱 화면 시연 영상: [YouTube](https://youtu.be/aYubrDH5uk0)
 - 웹 데모: [소개 화면](https://moagil-eta.vercel.app/) · [운전자 화면](https://moagil-eta.vercel.app/app)
 - 소스 코드: [GitHub 저장소](https://github.com/kimps005/MOAGIL)
 - 차량 앱: [Pleos ARM64 APK](apk/MOAGIL_Moagil_release.apk)
