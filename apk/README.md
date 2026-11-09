@@ -2,7 +2,7 @@
 
 | 변형 | 대상 | 파일 | 크기 | SHA-256 |
 |---|---|---|---:|---|
-| Pleos release · v1.0.0 | ARM64 | [MOAGIL_Moagil_release.apk](MOAGIL_Moagil_release.apk) | 23,553,672 bytes | `AE063FCADCEE0AB7C6259020A65B7D3720CB109782B74A75843F1EF16B93697B` |
+| Pleos release · v1.0.0 | ARM64 | [최민수_모아길_release.apk](최민수_모아길_release.apk) | 23,553,672 bytes | `AE063FCADCEE0AB7C6259020A65B7D3720CB109782B74A75843F1EF16B93697B` |
 
 패키지 ID는 `kr.moagil.vehicle`이며 Android API 28 이상이 필요합니다. Pleos/AAOS 차량 환경용 APK입니다. release 빌드는 `debuggable`이 꺼져 있고 MOAGIL release 키로 서명했습니다. 인증서 SHA-256: `A60D1E5C19E4C107708463922D1AD32248D0A7CC97B4529DD747C87FC312D6B6`.
 

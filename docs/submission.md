@@ -11,7 +11,7 @@
 | 항목 | 현재 상태 | 제출 단계 |
 |---|---|---|
 | 저장소 및 소스 | 충족 · [kimps005/MOAGIL](https://github.com/kimps005/MOAGIL), 공개 저장소 | 공개 상태이면 심사용 Collaborator 초대 불필요 |
-| 제출 APK | 충족 · 서명된 [MOAGIL_Moagil_release.apk](../apk/MOAGIL_Moagil_release.apk), Pleos ARM64 | 실제 참가 팀명이 MOAGIL과 다르면 파일명과 설명 변경 |
+| 제출 APK | 충족 · 서명된 [최민수_모아길_release.apk](../apk/최민수_모아길_release.apk), Pleos ARM64 | 접수양식의 팀명·앱명과 일치 |
 | 서명·실행 확인 | v2 서명 및 `debuggable` 비활성 확인; 동일 키의 x86_64 Pleos APK 실행 확인 | 실차 ARM64 설치와 차량 권한 신호는 별도 시험 |
 | README | 앱 소개, 실행 방법, 환경 설정, APK 위치 기재 | 접수양식에 같은 저장소·APK 경로 기록 |
 | 시연 영상 | 제작 및 YouTube 링크 확보 · [MOAGIL 시연 영상](https://youtu.be/u-7vw_0MuKI) | 선택 제출; 접수양식에 영상 링크 기재 |
@@ -34,7 +34,7 @@ Keystore와 암호는 로컬 `.tools/signing/`에만 두며 Git에 올리지 않
 
 ## 이메일 접수 전 체크리스트
 
-1. 접수양식의 팀명·앱명과 APK 파일명 `MOAGIL_Moagil_release.apk`가 일치하는지 확인합니다. 참가 팀명이 다르면 APK 파일명과 문서를 함께 맞춥니다.
+1. 접수양식의 팀명 `최민수`, 앱명 `모아길`과 APK 파일명 `최민수_모아길_release.apk`가 일치하는지 확인합니다.
 2. 제작한 시연 영상을 YouTube에 올린 뒤 영상 링크를 접수양식에 적습니다. 일반 시연 영상의 별도 업로드 규격은 확인되지 않았습니다.
 3. 참가자 모두 접수양식의 동의 여부·서명·날짜를 작성합니다. 대표자는 팀원 전원을 CC에 넣습니다.
 4. 2026-11-15 마감 전 `appdevchallenge@hyundai-partners.com`으로 접수양식과 선택 제출물을 보냅니다. 제목: `[차량용 앱 개발 공모전] 팀명(개인은 성명)_대표자명`.

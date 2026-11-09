@@ -8,7 +8,7 @@
 - 에뮬레이터 앱 화면 시연 영상: [YouTube](https://youtu.be/aYubrDH5uk0)
 - 웹 데모: [소개 화면](https://moagil-eta.vercel.app/) · [운전자 화면](https://moagil-eta.vercel.app/app)
 - 소스 코드: [GitHub 저장소](https://github.com/kimps005/MOAGIL)
-- 차량 앱: [Pleos ARM64 APK](apk/MOAGIL_Moagil_release.apk)
+- 차량 앱: [Pleos ARM64 APK](apk/최민수_모아길_release.apk)
 
 **웹 데모는 공모전 시연용 프로토타입이며 운영 중인 상용 차량 서비스가 아닙니다.** 브라우저 화면은 데모 서버와 연결되지만, 실제 차량 화면이나 차량 신호·Pleos 내비게이션 연동을 보여 주지는 않습니다.
 
@@ -25,7 +25,7 @@
 저장소 루트에서 호환 차량 기기를 연결한 뒤 설치합니다.
 
 ```powershell
-adb install apk/MOAGIL_Moagil_release.apk
+adb install apk/최민수_모아길_release.apk
 ```
 
 패키지 ID: `kr.moagil.vehicle` · 최소 Android API: 28 · 앱 버전: `1.0.0-pleos`

@@ -9,7 +9,7 @@ $keyAlias = 'moagil-release'
 $javaHomeDirectory = Join-Path $vehicleAppDirectory '.tools/jdk17/jdk-17.0.20.1+1'
 $keytoolPath = Join-Path $javaHomeDirectory 'bin/keytool.exe'
 $releaseApkPath = Join-Path $vehicleAppDirectory 'app/build/outputs/apk/pleos/release/app-pleos-arm64-v8a-release.apk'
-$submissionApkPath = Join-Path $repositoryRoot 'apk/MOAGIL_Moagil_release.apk'
+$submissionApkPath = Join-Path $repositoryRoot 'apk/최민수_모아길_release.apk'
 
 New-Item -ItemType Directory -Force -Path $signingDirectory | Out-Null
 
