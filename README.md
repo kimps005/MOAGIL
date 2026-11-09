@@ -38,7 +38,7 @@ APK SHA-256: `AE063FCADCEE0AB7C6259020A65B7D3720CB109782B74A75843F1EF16B93697B`
 |---|---|
 | 공개 웹 데모 | 인터넷 연결이 되는 PC·모바일 브라우저. 별도 Kakao 키나 로컬 서버 실행 없이 열 수 있습니다. |
 | Pleos 차량 앱 | Android API 28 이상, Pleos/AAOS ARM64, Pleos NaviHelper와 허용된 차량 권한·신호가 필요합니다. |
-| 로컬 개발 | Windows PowerShell, Python 3.12 이상. 전체 지도·경로 기능에는 Kakao REST 및 JavaScript 키를 로컬 `.env`에 설정합니다. `.env.example`을 참고하세요. |
+| 로컬 개발 | Windows PowerShell, Python 3.12 이상. 공개 배포본은 배포 환경변수를 사용하므로 별도 키 입력이 필요하지 않습니다. 로컬에서 지도·경로 기능을 실행할 때만 `.env.example`을 참고해 서버용 Kakao REST 키(경로·장소 검색)와 지도용 JavaScript 키를 `.env`에 설정합니다. 키 값은 GitHub에 올리지 마세요. |
 | Android 빌드·검증 | JDK 17, Android SDK API 34, Build Tools 36.0.0, Pleos SDK 3.0.5. |
 
 ## 검증 범위
